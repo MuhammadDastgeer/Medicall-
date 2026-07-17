@@ -14,7 +14,7 @@ import DialerSim from './DialerSim';
 import { supabase } from '../lib/supabaseClient';
 
 interface DashboardProps {
-  activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'support' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'notifications' | 'settings';
+  activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'notifications' | 'settings';
   appointments: Appointment[];
   conversations: Conversation[];
   agents: AIAgent[];
@@ -89,6 +89,10 @@ export default function Dashboard({
   });
   const [editingFaq, setEditingFaq] = useState<FAQ | null>(null);
   const [viewingFaq, setViewingFaq] = useState<FAQ | null>(null);
+  const [editingService, setEditingService] = useState<Service | null>(null);
+  const [viewingService, setViewingService] = useState<Service | null>(null);
+  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+  const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
 
   const [settingsTab, setSettingsTab] = useState<'profile' | 'hours' | 'password'>('profile');
   const [oldPassword, setOldPassword] = useState('');
@@ -115,20 +119,70 @@ export default function Dashboard({
     };
   }, []);
 
+  // Fetch patients when patients tab is selected or on mount
+  useEffect(() => {
+    const loadPatients = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data, error } = await supabase
+            .from('patients')
+            .select('*')
+            .eq('user_id', user.id);
+          if (data && !error) {
+            setPatients(data);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching patients:", err);
+      }
+    };
+    if (activeTab === 'patients' || patients.length === 0) {
+      loadPatients();
+    }
+  }, [activeTab]);
+
   // Schedule / Calendar state
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState('2026-05-16');
+  const getTodayDateString = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(getTodayDateString());
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth()); // 0-11
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+
+  const handlePrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(prev => prev - 1);
+    } else {
+      setCurrentMonth(prev => prev - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(prev => prev + 1);
+    } else {
+      setCurrentMonth(prev => prev + 1);
+    }
+  };
   
   // Patients list state
   const [patientSearch, setPatientSearch] = useState('');
   const [showPatientModal, setShowPatientModal] = useState(false);
-  const [patients, setPatients] = useState([
-    { id: 'p1', name: 'Sarah Jenkins', phone: '(555) 019-2834', email: 'sarah.j@example.com', vehicle: '2021 Toyota Camry', notes: 'Scheduled for Oil Change on May 16. Prefers mornings.', status: 'Active' },
-    { id: 'p2', name: 'John Smith', phone: '(555) 014-9912', email: 'john.smith@example.com', vehicle: '2019 Ford F-150', notes: 'Brake inspection booked. Requires standard billing invoice.', status: 'Active' },
-    { id: 'p3', name: 'Robert Chen', phone: '(555) 022-1845', email: 'robert.chen@example.com', vehicle: '2022 Tesla Model 3', notes: 'General inquiry about electric vehicle diagnostics & alignment.', status: 'Active' },
-    { id: 'p4', name: 'Emily Rodriguez', phone: '(555) 017-4831', email: 'emily.rod@example.com', vehicle: '2020 Honda Civic', notes: 'Awaiting clinical auto recall response on transmission fluid.', status: 'Completed' },
-    { id: 'p5', name: 'Michael Chang', phone: '(555) 011-3829', email: 'mchang@example.com', vehicle: '2023 BMW X5', notes: 'Interested in premier maintenance packages and warranty checks.', status: 'Pending' }
-  ]);
-  const [newPatient, setNewPatient] = useState({ name: '', phone: '', email: '', vehicle: '', notes: '' });
+  const [patients, setPatients] = useState<any[]>([]);
+  const [editingPatient, setEditingPatient] = useState<any | null>(null);
+  const [isViewOnly, setIsViewOnly] = useState(false);
+  const [newPatient, setNewPatient] = useState({ name: '', phone: '', email: '', vehicle: '', notes: '', status: 'Active' });
+  const [bookAppointment, setBookAppointment] = useState(false);
+  const [aptTime, setAptTime] = useState('');
+  const [aptServiceId, setAptServiceId] = useState('');
 
   // Help Support state
   const [selectedTicketId, setSelectedTicketId] = useState('t1');
@@ -179,6 +233,130 @@ export default function Dashboard({
       });
     }
   }, [activeTab]);
+
+
+  // Dynamic metrics helpers for Overview and Analytics tabs
+  const getAverageCallDuration = () => {
+    if (!conversations || conversations.length === 0) return '0:00';
+    let totalSeconds = 0;
+    let count = 0;
+    conversations.forEach(c => {
+      if (c.duration) {
+        const parts = c.duration.split(':');
+        if (parts.length === 2) {
+          totalSeconds += parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+          count++;
+        }
+      }
+    });
+    if (count === 0) return '0:00';
+    const avgSeconds = Math.round(totalSeconds / count);
+    const mins = Math.floor(avgSeconds / 60);
+    const secs = avgSeconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  const getWeeklyBreakdown = () => {
+    const days = [
+      { day: 'Mon', calls: 0, appointments: 0, dayIndex: 1 },
+      { day: 'Tue', calls: 0, appointments: 0, dayIndex: 2 },
+      { day: 'Wed', calls: 0, appointments: 0, dayIndex: 3 },
+      { day: 'Thu', calls: 0, appointments: 0, dayIndex: 4 },
+      { day: 'Fri', calls: 0, appointments: 0, dayIndex: 5 },
+      { day: 'Sat', calls: 0, appointments: 0, dayIndex: 6 },
+      { day: 'Sun', calls: 0, appointments: 0, dayIndex: 0 },
+    ];
+
+    if (appointments) {
+      appointments.forEach(apt => {
+        if (!apt.scheduledAt) return;
+        try {
+          let dateStr = apt.scheduledAt;
+          if (dateStr.includes('at')) {
+            dateStr = dateStr.split('at')[0].trim();
+          }
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) {
+            const dayOfWeek = d.getDay();
+            const matchedDay = days.find(day => day.dayIndex === dayOfWeek);
+            if (matchedDay) {
+              matchedDay.appointments++;
+            }
+          } else {
+            const lower = apt.scheduledAt.toLowerCase();
+            if (lower.includes('monday') || lower.includes('mon')) days[0].appointments++;
+            else if (lower.includes('tuesday') || lower.includes('tue')) days[1].appointments++;
+            else if (lower.includes('wednesday') || lower.includes('wed')) days[2].appointments++;
+            else if (lower.includes('thursday') || lower.includes('thu')) days[3].appointments++;
+            else if (lower.includes('friday') || lower.includes('fri')) days[4].appointments++;
+            else if (lower.includes('saturday') || lower.includes('sat')) days[5].appointments++;
+            else if (lower.includes('sunday') || lower.includes('sun')) days[6].appointments++;
+          }
+        } catch (e) {
+          console.error("Error mapping appointment day:", e);
+        }
+      });
+    }
+
+    if (conversations) {
+      conversations.forEach(c => {
+        if (!c.startedAt) return;
+        const lower = c.startedAt.toLowerCase();
+        if (lower.includes('monday') || lower.includes('mon')) days[0].calls++;
+        else if (lower.includes('tuesday') || lower.includes('tue')) days[1].calls++;
+        else if (lower.includes('wednesday') || lower.includes('wed')) days[2].calls++;
+        else if (lower.includes('thursday') || lower.includes('thu')) days[3].calls++;
+        else if (lower.includes('friday') || lower.includes('fri')) days[4].calls++;
+        else if (lower.includes('saturday') || lower.includes('sat')) days[5].calls++;
+        else if (lower.includes('sunday') || lower.includes('sun')) days[6].calls++;
+        else {
+          const todayIndex = new Date().getDay();
+          const matchedDay = days.find(day => day.dayIndex === todayIndex);
+          if (matchedDay) {
+            matchedDay.calls++;
+          }
+        }
+      });
+    }
+
+    return days;
+  };
+
+  const getTrendSvgPaths = () => {
+    const data = getWeeklyBreakdown();
+    const maxVal = Math.max(1, ...data.map(d => Math.max(d.calls, d.appointments)));
+    
+    const width = 500;
+    const height = 150;
+    const padding = 15;
+    const usableHeight = height - padding * 2;
+    
+    const pointsCalls = data.map((d, i) => {
+      const x = (i / (data.length - 1)) * width;
+      const y = height - padding - (d.calls / maxVal) * usableHeight;
+      return { x, y };
+    });
+    
+    const pointsApts = data.map((d, i) => {
+      const x = (i / (data.length - 1)) * width;
+      const y = height - padding - (d.appointments / maxVal) * usableHeight;
+      return { x, y };
+    });
+    
+    const callsLinePath = pointsCalls.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ');
+    const callsAreaPath = `${callsLinePath} L ${width},${height} L 0,${height} Z`;
+    
+    const aptsLinePath = pointsApts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y}`).join(' ');
+    const aptsAreaPath = `${aptsLinePath} L ${width},${height} L 0,${height} Z`;
+    
+    return { callsLinePath, callsAreaPath, aptsLinePath, aptsAreaPath };
+  };
+
+  const bookedCount = conversations.filter(c => c.appointmentBooked).length;
+  const otherCount = Math.max(0, conversations.length - bookedCount);
+  const convertedPct = conversations.length > 0 ? Math.round((bookedCount / conversations.length) * 100) : 0;
+  const weeklyData = getWeeklyBreakdown();
+  const maxWeeklyVal = Math.max(1, ...weeklyData.map(d => Math.max(d.calls, d.appointments)));
 
   // Track changes dynamically to generate notifications
   const isFirstRender = useRef(true);
@@ -474,31 +652,76 @@ export default function Dashboard({
     }
   };
 
-  // Create appointment
-  const handleCreateAppointment = (e: React.FormEvent) => {
+  // Create/Edit appointment
+  const handleSaveAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newApt.customerName || !newApt.phoneNumber) return;
-    
-    const formattedApt: Appointment = {
-      id: `apt-${Date.now()}`,
-      customerName: newApt.customerName,
-      phoneNumber: newApt.phoneNumber,
-      vehicleYear: newApt.vehicleYear || '2021',
-      vehicleMake: newApt.vehicleMake || 'Toyota',
-      vehicleModel: newApt.vehicleModel || 'Camry',
-      serviceId: newApt.serviceId || services[0]?.id || 'srv-2',
-      scheduledAt: newApt.scheduledAt ? newApt.scheduledAt.replace('T', ' ') : 'May 16, 2026 3:30 PM',
-      status: (newApt.status as any) || 'pending',
-      notes: newApt.notes || ''
-    };
 
-    onUpdateAppointments([formattedApt, ...appointments]);
-    setShowAptModal(false);
-    // Reset
-    setNewApt({
-      customerName: '', phoneNumber: '', vehicleYear: '2021', vehicleMake: 'Toyota', vehicleModel: 'Camry',
-      serviceId: services[0]?.id || '', scheduledAt: '', status: 'pending', notes: ''
-    });
+    try {
+      if (editingAppointment) {
+        const updatedFields = {
+          customerName: newApt.customerName,
+          phoneNumber: newApt.phoneNumber,
+          vehicleYear: newApt.vehicleYear || '2021',
+          vehicleMake: newApt.vehicleMake || 'Toyota',
+          vehicleModel: newApt.vehicleModel || 'Camry',
+          serviceId: newApt.serviceId || services[0]?.id || 'srv-2',
+          scheduledAt: newApt.scheduledAt ? newApt.scheduledAt.replace('T', ' ') : 'May 16, 2026 3:30 PM',
+          status: newApt.status || 'pending',
+          notes: newApt.notes || ''
+        };
+
+        const { error } = await supabase
+          .from('appointments')
+          .update(updatedFields)
+          .eq('id', editingAppointment.id);
+
+        if (error) {
+          console.error('Error updating appointment in Supabase:', error);
+        }
+
+        const updated = appointments.map(a => a.id === editingAppointment.id ? { ...a, ...updatedFields } : a);
+        onUpdateAppointments(updated);
+      } else {
+        const id = `apt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const { data: { user } } = await supabase.auth.getUser();
+        const user_id = user ? user.id : null;
+
+        const newAptObj = {
+          id,
+          user_id,
+          customerName: newApt.customerName,
+          phoneNumber: newApt.phoneNumber,
+          vehicleYear: newApt.vehicleYear || '2021',
+          vehicleMake: newApt.vehicleMake || 'Toyota',
+          vehicleModel: newApt.vehicleModel || 'Camry',
+          serviceId: newApt.serviceId || services[0]?.id || 'srv-2',
+          scheduledAt: newApt.scheduledAt ? newApt.scheduledAt.replace('T', ' ') : 'May 16, 2026 3:30 PM',
+          status: newApt.status || 'pending',
+          notes: newApt.notes || ''
+        };
+
+        const { error } = await supabase
+          .from('appointments')
+          .insert(newAptObj);
+
+        if (error) {
+          console.error('Error inserting appointment in Supabase:', error);
+        }
+
+        const { user_id: _, ...localApt } = newAptObj as any;
+        onUpdateAppointments([localApt, ...appointments]);
+      }
+    } catch (err) {
+      console.error('Exception saving appointment:', err);
+    } finally {
+      setShowAptModal(false);
+      setEditingAppointment(null);
+      setNewApt({
+        customerName: '', phoneNumber: '', vehicleYear: '2021', vehicleMake: 'Toyota', vehicleModel: 'Camry',
+        serviceId: services[0]?.id || '', scheduledAt: '', status: 'pending', notes: ''
+      });
+    }
   };
 
   // Create agent
@@ -527,26 +750,90 @@ export default function Dashboard({
     });
   };
 
-  // Create service
-  const handleCreateService = (e: React.FormEvent) => {
+  // Create or Update service in Supabase
+  const handleSaveService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newService.name) return;
 
-    const formattedService: Service = {
-      id: `srv-${Date.now()}`,
-      name: newService.name,
-      description: newService.description || '',
-      durationMinutes: Number(newService.durationMinutes) || 60,
-      priceType: (newService.priceType as any) || 'Fixed Price',
-      price: Number(newService.price) || 0,
-      isActive: true
-    };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user ? user.id : null;
 
-    onUpdateServices([...services, formattedService]);
-    setShowServiceModal(false);
-    setNewService({
-      name: '', description: '', durationMinutes: 60, priceType: 'Fixed Price', price: 49.99, isActive: true
-    });
+      if (editingService) {
+        const updatedService: Service = {
+          id: editingService.id,
+          name: newService.name,
+          description: newService.description || '',
+          durationMinutes: Number(newService.durationMinutes) || 60,
+          priceType: (newService.priceType as any) || 'Fixed Price',
+          price: Number(newService.price) || 0,
+          isActive: newService.isActive !== undefined ? newService.isActive : true
+        };
+
+        const { error } = await supabase
+          .from('services')
+          .update(userId ? { ...updatedService, user_id: userId } : updatedService)
+          .eq('id', editingService.id);
+
+        if (error) {
+          console.error('Error updating Service:', error);
+        }
+
+        onUpdateServices(services.map(s => s.id === editingService.id ? updatedService : s));
+      } else {
+        const formattedService = {
+          id: `srv-${Date.now()}`,
+          name: newService.name,
+          description: newService.description || '',
+          durationMinutes: Number(newService.durationMinutes) || 60,
+          priceType: (newService.priceType as any) || 'Fixed Price',
+          price: Number(newService.price) || 0,
+          isActive: true
+        };
+
+        const { error } = await supabase
+          .from('services')
+          .insert(userId ? { ...formattedService, user_id: userId } : formattedService);
+
+        if (error) {
+          console.error('Error inserting Service:', error);
+        }
+
+        onUpdateServices([...services, formattedService]);
+      }
+    } catch (err) {
+      console.error('Exception saving Service:', err);
+      // Fallback
+      if (editingService) {
+        const updatedService: Service = {
+          id: editingService.id,
+          name: newService.name!,
+          description: newService.description || '',
+          durationMinutes: Number(newService.durationMinutes) || 60,
+          priceType: (newService.priceType as any) || 'Fixed Price',
+          price: Number(newService.price) || 0,
+          isActive: newService.isActive !== undefined ? newService.isActive : true
+        };
+        onUpdateServices(services.map(s => s.id === editingService.id ? updatedService : s));
+      } else {
+        const formattedService = {
+          id: `srv-${Date.now()}`,
+          name: newService.name!,
+          description: newService.description || '',
+          durationMinutes: Number(newService.durationMinutes) || 60,
+          priceType: (newService.priceType as any) || 'Fixed Price',
+          price: Number(newService.price) || 0,
+          isActive: true
+        };
+        onUpdateServices([...services, formattedService]);
+      }
+    } finally {
+      setShowServiceModal(false);
+      setEditingService(null);
+      setNewService({
+        name: '', description: '', durationMinutes: 60, priceType: 'Fixed Price', price: 49.99, isActive: true
+      });
+    }
   };
 
   // Create or Update FAQ in Supabase
@@ -617,8 +904,21 @@ export default function Dashboard({
   };
 
   // Delete handlers
-  const deleteAppointment = (id: string) => {
-    onUpdateAppointments(appointments.filter(a => a.id !== id));
+  const deleteAppointment = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error deleting appointment from Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Exception deleting appointment:', err);
+    } finally {
+      onUpdateAppointments(appointments.filter(a => a.id !== id));
+    }
   };
 
   const deleteAgent = (id: string) => {
@@ -628,8 +928,21 @@ export default function Dashboard({
     }
   };
 
-  const deleteService = (id: string) => {
-    onUpdateServices(services.filter(s => s.id !== id));
+  const deleteService = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('services')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error deleting Service from Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Exception deleting Service:', err);
+    } finally {
+      onUpdateServices(services.filter(s => s.id !== id));
+    }
   };
 
   const deleteFaq = async (id: string) => {
@@ -672,13 +985,18 @@ export default function Dashboard({
   const faqCategories = ['All', ...Array.from(new Set(faqs.map(f => f.category)))];
 
   // Appointment booked from Dialer simulator directly!
-  const handleDirectDialerBooking = (name: string, vehicle: string, serviceName: string) => {
+  const handleDirectDialerBooking = async (name: string, vehicle: string, serviceName: string) => {
     // Find service ID
     const matchingService = services.find(s => s.name.toLowerCase().includes(serviceName.toLowerCase())) || services[0];
     
+    const id = `apt-${Date.now()}`;
+    const { data: { user } } = await supabase.auth.getUser();
+    const user_id = user ? user.id : null;
+
     // Add appointment
-    const newAptObj: Appointment = {
-      id: `apt-${Date.now()}`,
+    const newAptObj = {
+      id,
+      user_id,
       customerName: name,
       phoneNumber: '9999999999',
       vehicleYear: '2021',
@@ -690,7 +1008,16 @@ export default function Dashboard({
       notes: 'Booked via simulated live dialer receptionist'
     };
 
-    onUpdateAppointments([newAptObj, ...appointments]);
+    try {
+      await supabase
+        .from('appointments')
+        .insert(newAptObj);
+    } catch (err) {
+      console.error('Error saving direct dialer booking to Supabase:', err);
+    }
+
+    const { user_id: _, ...localApt } = newAptObj as any;
+    onUpdateAppointments([localApt, ...appointments]);
 
     // Add conversation
     const newConvObj: Conversation = {
@@ -803,7 +1130,6 @@ export default function Dashboard({
                 { tab: 'appointments', label: 'Appointments', icon: Calendar, path: '/appointments' },
                 { tab: 'schedule', label: 'Schedule', icon: CalendarDays, path: '/schedule' },
                 { tab: 'patients', label: 'Patients', icon: Users, path: '/patients' },
-                { tab: 'support', label: 'Support', icon: Headphones, path: '/support' },
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.tab;
@@ -1176,7 +1502,7 @@ export default function Dashboard({
                   <div className="absolute -right-8 -bottom-8 w-24 h-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition-colors pointer-events-none"></div>
                   <div>
                     <span className="text-[10px] text-[#94A3B8] block uppercase tracking-widest font-extrabold">Avg Call Duration</span>
-                    <span className="text-3xl font-extrabold text-[#F8FAFC] block mt-1.5 tracking-tight">1:48</span>
+                    <span className="text-3xl font-extrabold text-[#F8FAFC] block mt-1.5 tracking-tight">{getAverageCallDuration()}</span>
                     <span className="text-[10px] text-amber-400 flex items-center gap-1 mt-2 font-semibold">
                       <Clock className="w-3.5 h-3.5 animate-pulse" /> Highly Optimized
                     </span>
@@ -1204,7 +1530,7 @@ export default function Dashboard({
                   <div className="flex items-center justify-between mb-6">
                     <div>
                       <h4 className="text-[#F8FAFC] font-bold text-sm tracking-tight font-display">Conversation Trend</h4>
-                      <p className="text-[10px] text-[#94A3B8]">14 days inbound calls vs appointment conversion</p>
+                      <p className="text-[10px] text-[#94A3B8]">Weekly inbound calls vs appointment conversion</p>
                     </div>
                     <div className="flex items-center gap-3 text-[10px] font-mono">
                       <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-[#3B82F6] rounded-full shadow-lg shadow-[#3B82F6]/20"></span> Inbound Calls</span>
@@ -1232,20 +1558,22 @@ export default function Dashboard({
                       <line x1="0" y1="120" x2="500" y2="120" stroke="#1F2937" strokeDasharray="3"/>
 
                       {/* Area Fill */}
-                      <path d="M 0,150 L 50,140 L 100,145 L 150,135 L 200,130 L 250,120 L 300,125 L 350,110 L 400,115 L 450,110 L 500,40 L 500,150 Z" fill="url(#glowBlue)"/>
-                      <path d="M 0,150 L 50,145 L 100,148 L 150,142 L 200,140 L 250,135 L 300,138 L 350,128 L 400,132 L 450,130 L 500,60 L 500,150 Z" fill="url(#glowPurple)"/>
+                      <path d={getTrendSvgPaths().callsAreaPath} fill="url(#glowBlue)"/>
+                      <path d={getTrendSvgPaths().aptsAreaPath} fill="url(#glowPurple)"/>
 
                       {/* Lines */}
-                      <path d="M 0,150 L 50,140 L 100,145 L 150,135 L 200,130 L 250,120 L 300,125 L 350,110 L 400,115 L 450,110 L 500,40" fill="none" stroke="#3B82F6" strokeWidth="2.5"/>
-                      <path d="M 0,150 L 50,145 L 100,148 L 150,142 L 200,140 L 250,135 L 300,138 L 350,128 L 400,132 L 450,130 L 500,60" fill="none" stroke="#8B5CF6" strokeWidth="2.5"/>
+                      <path d={getTrendSvgPaths().callsLinePath} fill="none" stroke="#3B82F6" strokeWidth="2.5"/>
+                      <path d={getTrendSvgPaths().aptsLinePath} fill="none" stroke="#8B5CF6" strokeWidth="2.5"/>
                     </svg>
                   </div>
                   <div className="flex justify-between text-[9px] font-mono text-[#94A3B8] mt-2">
-                    <span>Apr 29</span>
-                    <span>May 03</span>
-                    <span>May 07</span>
-                    <span>May 11</span>
-                    <span>May 16 (Today)</span>
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                    <span>Sun</span>
                   </div>
                 </motion.div>
 
@@ -1262,19 +1590,27 @@ export default function Dashboard({
                   <div className="space-y-3 text-xs">
                     <div className="flex justify-between border-b border-[#1F2937] pb-2.5">
                       <span className="text-[#94A3B8]">Today's Conversations</span>
-                      <span className="text-[#F8FAFC] font-mono font-extrabold text-sm">4</span>
+                      <span className="text-[#F8FAFC] font-mono font-extrabold text-sm">
+                        {conversations.filter(c => c.startedAt && (c.startedAt.includes('minute') || c.startedAt.includes('hour') || c.startedAt.includes('Today') || c.startedAt.includes('today') || c.startedAt.includes('ago'))).length}
+                      </span>
                     </div>
                     <div className="flex justify-between border-b border-[#1F2937] pb-2.5">
                       <span className="text-[#94A3B8]">This Week's Conversions</span>
-                      <span className="text-[#F8FAFC] font-mono font-extrabold text-sm">4</span>
+                      <span className="text-[#F8FAFC] font-mono font-extrabold text-sm">
+                        {appointments.filter(a => a.status === 'confirmed' || a.status === 'completed').length}
+                      </span>
                     </div>
                     <div className="flex justify-between border-b border-[#1F2937] pb-2.5">
                       <span className="text-[#94A3B8]">Callbacks Requested</span>
-                      <span className="text-yellow-400 font-mono font-extrabold text-sm">0</span>
+                      <span className="text-yellow-400 font-mono font-extrabold text-sm">
+                        {appointments.filter(a => a.status === 'pending').length}
+                      </span>
                     </div>
                     <div className="flex justify-between pb-1">
                       <span className="text-[#94A3B8]">Active Configured Agents</span>
-                      <span className="text-[#3B82F6] font-mono font-extrabold text-sm">2</span>
+                      <span className="text-[#3B82F6] font-mono font-extrabold text-sm">
+                        {agents.filter(a => a.isActive !== false).length}
+                      </span>
                     </div>
                   </div>
 
@@ -1398,17 +1734,19 @@ export default function Dashboard({
                       <line x1="0" y1="120" x2="500" y2="120" stroke="#1F2937" strokeDasharray="3"/>
  
                       {/* Area Fill */}
-                      <path d="M 0,150 L 100,148 L 200,147 L 300,146 L 400,145 L 450,110 L 500,20 L 500,150 Z" fill="url(#glowBlue)"/>
+                      <path d={getTrendSvgPaths().callsAreaPath} fill="url(#glowBlue)"/>
                       {/* Line */}
-                      <path d="M 0,150 L 100,148 L 200,147 L 300,146 L 400,145 L 450,110 L 500,20" fill="none" stroke="#3B82F6" strokeWidth="2.5"/>
+                      <path d={getTrendSvgPaths().callsLinePath} fill="none" stroke="#3B82F6" strokeWidth="2.5"/>
                     </svg>
                   </div>
                   <div className="flex justify-between text-[9px] font-mono text-[#94A3B8] mt-2">
-                    <span>Apr 13</span>
-                    <span>Apr 23</span>
-                    <span>May 03</span>
-                    <span>May 13</span>
-                    <span>May 16</span>
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                    <span>Sun</span>
                   </div>
                 </motion.div>
 
@@ -1431,25 +1769,27 @@ export default function Dashboard({
                     <svg className="w-36 h-36 transform -rotate-90 filter drop-shadow-[0_0_15px_rgba(59,130,246,0.15)] group-hover:scale-105 transition-transform duration-500">
                       {/* Base Circle */}
                       <circle cx="72" cy="72" r="50" fill="transparent" stroke="#020617" strokeWidth="18" />
-                      {/* Booking segment (75%) */}
+                      {/* Booking segment */}
                       <circle 
                         cx="72" cy="72" r="50" fill="transparent" 
                         stroke="#3B82F6" strokeWidth="18" 
                         strokeDasharray={2 * Math.PI * 50} 
-                        strokeDashoffset={2 * Math.PI * 50 * 0.25} 
+                        strokeDashoffset={2 * Math.PI * 50 * (1 - convertedPct / 100)} 
                       />
-                      {/* No action segment (25%) */}
-                      <circle 
-                        cx="72" cy="72" r="50" fill="transparent" 
-                        stroke="#8B5CF6" strokeWidth="18" 
-                        strokeDasharray={2 * Math.PI * 50} 
-                        strokeDashoffset={2 * Math.PI * 50 * 0.75} 
-                        className="origin-center"
-                        style={{ transform: `rotate(${360 * 0.75}deg)` }}
-                      />
+                      {/* No action segment */}
+                      {convertedPct < 100 && (
+                        <circle 
+                          cx="72" cy="72" r="50" fill="transparent" 
+                          stroke="#8B5CF6" strokeWidth="18" 
+                          strokeDasharray={2 * Math.PI * 50} 
+                          strokeDashoffset={2 * Math.PI * 50 * (convertedPct / 100)} 
+                          className="origin-center"
+                          style={{ transform: `rotate(${360 * (convertedPct / 100)}deg)` }}
+                        />
+                      )}
                     </svg>
                     <div className="absolute text-center">
-                      <span className="text-3xl font-extrabold text-white block tracking-tighter">75%</span>
+                      <span className="text-3xl font-extrabold text-white block tracking-tighter">{convertedPct}%</span>
                       <span className="text-[9px] text-[#3B82F6] font-extrabold uppercase tracking-widest">Converted</span>
                     </div>
                   </div>
@@ -1457,11 +1797,11 @@ export default function Dashboard({
                   <div className="space-y-2 text-xs font-mono pt-4 border-t border-[#1F2937]">
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-2 text-[#94A3B8]"><span className="w-2.5 h-2.5 rounded bg-[#3B82F6] shadow-md shadow-[#3B82F6]/20"></span> Appointments Booked</span>
-                      <span className="text-white font-extrabold">3</span>
+                      <span className="text-white font-extrabold">{bookedCount}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-2 text-[#94A3B8]"><span className="w-2.5 h-2.5 rounded bg-[#8B5CF6] shadow-md shadow-[#8B5CF6]/20"></span> No Action / Other</span>
-                      <span className="text-white font-extrabold">1</span>
+                      <span className="text-white font-extrabold">{otherCount}</span>
                     </div>
                   </div>
                 </motion.div>
@@ -1481,21 +1821,13 @@ export default function Dashboard({
                 <p className="text-[10px] text-[#94A3B8] mb-8">Daily inbound call volumes categorized by appointments</p>
 
                 <div className="flex items-end justify-between h-48 gap-4 px-4 max-w-4xl mx-auto">
-                  {[
-                    { day: 'Mon', calls: 0, appointments: 0 },
-                    { day: 'Tue', calls: 4, appointments: 3 },
-                    { day: 'Wed', calls: 0, appointments: 0 },
-                    { day: 'Thu', calls: 0, appointments: 0 },
-                    { day: 'Fri', calls: 0, appointments: 0 },
-                    { day: 'Sat', calls: 0, appointments: 0 },
-                    { day: 'Sun', calls: 0, appointments: 0 },
-                  ].map((data, idx) => (
+                  {weeklyData.map((data, idx) => (
                     <div key={idx} className="flex-1 flex flex-col items-center gap-3">
                       <div className="w-full flex justify-center gap-2 h-36 items-end group">
                         {/* Inbound Call Bar (Green) */}
                         <motion.div 
                           initial={{ height: 0 }}
-                          animate={{ height: `${data.calls > 0 ? (data.calls / 5) * 100 : 2}%` }}
+                          animate={{ height: `${data.calls > 0 ? (data.calls / maxWeeklyVal) * 100 : 2}%` }}
                           transition={{ type: 'spring', delay: idx * 0.05, stiffness: 60 }}
                           className="w-4 bg-gradient-to-t from-[#3B82F6] to-[#3B82F6]/80 rounded-t-md transition-all duration-300 shadow-md shadow-[#3B82F6]/10 group-hover:brightness-110 cursor-pointer"
                           title={`Calls: ${data.calls}`}
@@ -1503,7 +1835,7 @@ export default function Dashboard({
                         {/* Appointment Booked Bar (Purple) */}
                         <motion.div 
                           initial={{ height: 0 }}
-                          animate={{ height: `${data.appointments > 0 ? (data.appointments / 5) * 100 : 2}%` }}
+                          animate={{ height: `${data.appointments > 0 ? (data.appointments / maxWeeklyVal) * 100 : 2}%` }}
                           transition={{ type: 'spring', delay: idx * 0.05 + 0.1, stiffness: 60 }}
                           className="w-4 bg-gradient-to-t from-[#8B5CF6] to-[#EC4899]/80 rounded-t-md transition-all duration-300 shadow-md shadow-[#8B5CF6]/10 group-hover:brightness-110 cursor-pointer"
                           title={`Booked: ${data.appointments}`}
@@ -1924,8 +2256,17 @@ export default function Dashboard({
                             <td className="p-4 text-center">
                               <select 
                                 value={apt.status}
-                                onChange={(e) => {
-                                  const updated = appointments.map(a => a.id === apt.id ? { ...a, status: e.target.value as any } : a);
+                                onChange={async (e) => {
+                                  const newStatus = e.target.value as any;
+                                  try {
+                                    await supabase
+                                      .from('appointments')
+                                      .update({ status: newStatus })
+                                      .eq('id', apt.id);
+                                  } catch (err) {
+                                    console.error('Error updating status in Supabase:', err);
+                                  }
+                                  const updated = appointments.map(a => a.id === apt.id ? { ...a, status: newStatus } : a);
                                   onUpdateAppointments(updated);
                                 }}
                                 className={`px-3 py-1 rounded-full text-[10px] font-bold border bg-[#020617] outline-none cursor-pointer transition-all ${
@@ -1941,14 +2282,58 @@ export default function Dashboard({
                               </select>
                             </td>
                             <td className="p-4 text-center">
-                              <motion.button 
-                                whileHover={{ scale: 1.1, color: "#f87171" }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={() => deleteAppointment(apt.id)}
-                                className="text-[#94A3B8] hover:text-red-400 p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </motion.button>
+                              <div className="flex items-center justify-center gap-1">
+                                {/* View Appointment Button */}
+                                <motion.button 
+                                  whileHover={{ scale: 1.1, color: "#3B82F6" }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => setViewingAppointment(apt)}
+                                  className="text-[#94A3B8] hover:text-[#3B82F6] p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
+                                  title="View Appointment Details"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </motion.button>
+
+                                {/* Edit Appointment Button */}
+                                <motion.button 
+                                  whileHover={{ scale: 1.1, color: "#10B981" }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => {
+                                    setEditingAppointment(apt);
+                                    setNewApt({
+                                      customerName: apt.customerName,
+                                      phoneNumber: apt.phoneNumber,
+                                      vehicleYear: apt.vehicleYear,
+                                      vehicleMake: apt.vehicleMake,
+                                      vehicleModel: apt.vehicleModel,
+                                      serviceId: apt.serviceId,
+                                      scheduledAt: apt.scheduledAt.includes(' ') ? apt.scheduledAt.replace(' ', 'T') : apt.scheduledAt,
+                                      status: apt.status,
+                                      notes: apt.notes || ''
+                                    });
+                                    setShowAptModal(true);
+                                  }}
+                                  className="text-[#94A3B8] hover:text-[#10B981] p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
+                                  title="Edit Appointment"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </motion.button>
+
+                                {/* Delete Appointment Button */}
+                                <motion.button 
+                                  whileHover={{ scale: 1.1, color: "#f87171" }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => {
+                                    if (confirm(`Are you sure you want to delete the appointment for "${apt.customerName}"?`)) {
+                                      deleteAppointment(apt.id);
+                                    }
+                                  }}
+                                  className="text-[#94A3B8] hover:text-red-400 p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
+                                  title="Delete Appointment"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </motion.button>
+                              </div>
                             </td>
                           </motion.tr>
                         );
@@ -2575,14 +2960,55 @@ export default function Dashboard({
                           {srv.priceType}
                         </span>
                         
-                        <motion.button 
-                          whileHover={{ scale: 1.1, color: "#f87171" }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => deleteService(srv.id)}
-                          className="text-[#94A3B8] hover:text-red-400 p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </motion.button>
+                        <div className="flex items-center gap-1">
+                          {/* View Service Button */}
+                          <motion.button 
+                            whileHover={{ scale: 1.1, color: "#3B82F6" }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => setViewingService(srv)}
+                            className="text-[#94A3B8] hover:text-[#3B82F6] p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
+                            title="View Service Details"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </motion.button>
+
+                          {/* Edit Service Button */}
+                          <motion.button 
+                            whileHover={{ scale: 1.1, color: "#10B981" }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => {
+                              setEditingService(srv);
+                              setNewService({
+                                name: srv.name,
+                                description: srv.description || '',
+                                durationMinutes: srv.durationMinutes || 60,
+                                priceType: srv.priceType || 'Fixed Price',
+                                price: srv.price || 0,
+                                isActive: srv.isActive !== undefined ? srv.isActive : true
+                              });
+                              setShowServiceModal(true);
+                            }}
+                            className="text-[#94A3B8] hover:text-[#10B981] p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
+                            title="Edit Service"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </motion.button>
+
+                          {/* Delete Service Button */}
+                          <motion.button 
+                            whileHover={{ scale: 1.1, color: "#f87171" }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to delete "${srv.name}"?`)) {
+                                deleteService(srv.id);
+                              }
+                            }}
+                            className="text-[#94A3B8] hover:text-red-400 p-1.5 rounded-lg hover:bg-[#020617] transition-all cursor-pointer"
+                            title="Delete Service"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </motion.button>
+                        </div>
                       </div>
  
                       <h4 className="text-white font-extrabold text-sm mb-2 group-hover:text-[#3B82F6] transition-colors">{srv.name}</h4>
@@ -3126,157 +3552,206 @@ export default function Dashboard({
           )}
 
           {/* SCHEDULE (CALENDAR) TAB */}
-          {activeTab === 'schedule' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-6 space-y-6"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#121e36] border border-[#1e293b] p-6 rounded-2xl">
-                <div>
-                  <h3 className="text-white font-display font-black text-base tracking-tight">Clinical Appointment Calendar</h3>
-                  <p className="text-xs text-[#617496]">Monitor real-time slot bookings and clinic scheduling.</p>
-                </div>
-                <div className="flex gap-2">
-                  <span className="text-xs font-mono font-bold text-[#2563eb] bg-[#2563eb]/10 border border-[#2563eb]/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                    <CalendarDays className="w-4 h-4" /> May 2026
-                  </span>
-                  <button 
-                    onClick={() => setShowAptModal(true)} 
-                    className="bg-[#2563eb] hover:bg-[#2563eb]/90 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-lg shadow-[#2563eb]/15 transition-all cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" /> Schedule Call
-                  </button>
-                </div>
-              </div>
+          {activeTab === 'schedule' && (() => {
+            const MONTH_NAMES = [
+              "January", "February", "March", "April", "May", "June",
+              "July", "August", "September", "October", "November", "December"
+            ];
+            const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* 1. Calendar Grid Container */}
-                <div className="lg:col-span-2 bg-[#121e36] border border-[#1e293b] rounded-2xl p-6 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-sm text-white">May 2026</span>
-                      <span className="text-[10px] text-emerald-400 bg-emerald-950/40 border border-emerald-900/30 px-2 py-0.5 rounded-md font-bold font-mono">Live Sync</span>
-                    </div>
-                    <div className="flex gap-1">
-                      <button className="text-[#617496] hover:text-white p-1 rounded hover:bg-[#0d172a] transition-all"><ChevronRight className="w-4 h-4 rotate-180" /></button>
-                      <button className="text-[#617496] hover:text-white p-1 rounded hover:bg-[#0d172a] transition-all"><ChevronRight className="w-4 h-4" /></button>
-                    </div>
-                  </div>
-
-                  {/* Days of the Week */}
-                  <div className="grid grid-cols-7 gap-2 text-center text-[10px] text-[#617496] font-bold uppercase tracking-wider mb-2">
-                    <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
-                  </div>
-
-                  {/* May 2026 Grid: Starts on Friday (May 1st) */}
-                  <div className="grid grid-cols-7 gap-2">
-                    {/* Empty cells for Sun-Thu before 1st */}
-                    <div className="aspect-square bg-[#0d172a]/20 rounded-xl opacity-30 border border-transparent"></div>
-                    <div className="aspect-square bg-[#0d172a]/20 rounded-xl opacity-30 border border-transparent"></div>
-                    <div className="aspect-square bg-[#0d172a]/20 rounded-xl opacity-30 border border-transparent"></div>
-                    <div className="aspect-square bg-[#0d172a]/20 rounded-xl opacity-30 border border-transparent"></div>
-                    <div className="aspect-square bg-[#0d172a]/20 rounded-xl opacity-30 border border-transparent"></div>
-                    
-                    {/* Render days of May */}
-                    {Array.from({ length: 31 }, (_, i) => {
-                      const day = i + 1;
-                      const dateStr = `2026-05-${day.toString().padStart(2, '0')}`;
-                      const isSelected = selectedCalendarDate === dateStr;
-                      
-                      // Check if appointments on this day
-                      const dayApts = appointments.filter(a => a.scheduledAt.startsWith(dateStr));
-                      const hasApts = dayApts.length > 0;
-
-                      return (
-                        <button
-                          key={day}
-                          onClick={() => setSelectedCalendarDate(dateStr)}
-                          className={`aspect-square rounded-xl flex flex-col justify-between p-2 relative border transition-all cursor-pointer ${
-                            isSelected 
-                              ? 'bg-[#2563eb]/20 border-[#2563eb] text-white shadow-md shadow-[#2563eb]/5'
-                              : 'bg-[#0d172a]/40 border-[#1e293b]/60 text-gray-300 hover:border-[#2563eb]/40'
-                          }`}
-                        >
-                          <span className="text-xs font-bold">{day}</span>
-                          {hasApts && (
-                            <div className="flex gap-1 max-w-full overflow-hidden self-end">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb] shadow-md shadow-[#2563eb]/50"></span>
-                              {dayApts.length > 1 && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-[#7c3aed]"></span>
-                              )}
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 2. Appointments on Selected Day */}
-                <div className="bg-[#121e36] border border-[#1e293b] rounded-2xl p-6 flex flex-col justify-between">
+            return (
+              <motion.div 
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-6 space-y-6"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#121e36] border border-[#1e293b] p-6 rounded-2xl">
                   <div>
-                    <div className="flex items-center justify-between pb-4 border-b border-[#1e293b] mb-4">
-                      <div>
-                        <span className="text-[10px] text-[#617496] uppercase font-black tracking-wider block">Selected Schedule</span>
-                        <span className="font-extrabold text-sm text-white">May {selectedCalendarDate.split('-')[2] || '16'}, 2026</span>
+                    <h3 className="text-white font-display font-black text-base tracking-tight">Clinical Appointment Calendar</h3>
+                    <p className="text-xs text-[#617496]">Monitor real-time slot bookings and clinic scheduling.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-xs font-mono font-bold text-[#2563eb] bg-[#2563eb]/10 border border-[#2563eb]/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                      <CalendarDays className="w-4 h-4" /> {MONTH_NAMES[currentMonth]} {currentYear}
+                    </span>
+                    <button 
+                      onClick={() => {
+                        setNewApt(prev => ({ ...prev, scheduledAt: `${selectedCalendarDate}T10:00` }));
+                        setShowAptModal(true);
+                      }} 
+                      className="bg-[#2563eb] hover:bg-[#2563eb]/90 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-lg shadow-[#2563eb]/15 transition-all cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" /> Schedule Call
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* 1. Calendar Grid Container */}
+                  <div className="lg:col-span-2 bg-[#121e36] border border-[#1e293b] rounded-2xl p-6 shadow-sm">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-sm text-white">{MONTH_NAMES[currentMonth]} {currentYear}</span>
+                        <span className="text-[10px] text-emerald-400 bg-emerald-950/40 border border-emerald-900/30 px-2 py-0.5 rounded-md font-bold font-mono">Live Sync</span>
                       </div>
-                      <span className="text-xs font-bold text-[#2563eb] bg-[#2563eb]/10 px-2.5 py-1 rounded-lg">
-                        {appointments.filter(a => a.scheduledAt.startsWith(selectedCalendarDate)).length} Booked
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => {
+                            const today = new Date();
+                            setCurrentMonth(today.getMonth());
+                            setCurrentYear(today.getFullYear());
+                            setSelectedCalendarDate(getTodayDateString());
+                          }}
+                          className="text-[10px] text-[#2563eb] hover:text-white px-2 py-1 rounded bg-[#2563eb]/10 hover:bg-[#2563eb] transition-all font-bold font-mono mr-2 cursor-pointer"
+                        >
+                          Today
+                        </button>
+                        <button 
+                          onClick={handlePrevMonth}
+                          className="text-[#617496] hover:text-white p-1 rounded hover:bg-[#0d172a] transition-all cursor-pointer"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={handleNextMonth}
+                          className="text-[#617496] hover:text-white p-1 rounded hover:bg-[#0d172a] transition-all cursor-pointer"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
-                      {appointments.filter(a => a.scheduledAt.startsWith(selectedCalendarDate)).length === 0 ? (
-                        <div className="text-center py-12">
-                          <CalendarDays className="w-8 h-8 text-[#617496]/50 mx-auto mb-2.5" />
-                          <p className="text-xs font-bold text-[#617496]">No appointments scheduled for this date.</p>
-                          <p className="text-[10px] text-[#617496]/70 mt-1">Click "Schedule Call" to list a new visit.</p>
-                        </div>
-                      ) : (
-                        appointments
-                          .filter(a => a.scheduledAt.startsWith(selectedCalendarDate))
-                          .map((apt) => (
-                            <div key={apt.id} className="bg-[#0d172a]/60 border border-[#1e293b] p-3.5 rounded-xl space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="font-black text-xs text-white">{apt.customerName}</span>
-                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
-                                  apt.status === 'confirmed' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-900/40' :
-                                  apt.status === 'pending' ? 'bg-amber-950/40 text-amber-400 border border-amber-900/40' :
-                                  'bg-red-950/40 text-red-400 border border-red-900/40'
-                                }`}>
-                                  {apt.status}
-                                </span>
+                    {/* Days of the Week */}
+                    <div className="grid grid-cols-7 gap-2 text-center text-[10px] text-[#617496] font-bold uppercase tracking-wider mb-2">
+                      <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                    </div>
+
+                    {/* Calendar Days Grid */}
+                    <div className="grid grid-cols-7 gap-2">
+                      {/* Empty cells before 1st of month */}
+                      {Array.from({ length: firstDayOfMonth }).map((_, idx) => (
+                        <div key={`empty-${idx}`} className="aspect-square bg-[#0d172a]/20 rounded-xl opacity-30 border border-transparent"></div>
+                      ))}
+                      
+                      {/* Days of current month */}
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const isSelected = selectedCalendarDate === dateStr;
+                        
+                        // Check if appointments on this day
+                        const dayApts = appointments.filter(a => a.scheduledAt.startsWith(dateStr));
+                        const hasApts = dayApts.length > 0;
+
+                        return (
+                          <button
+                            key={day}
+                            onClick={() => setSelectedCalendarDate(dateStr)}
+                            className={`aspect-square rounded-xl flex flex-col justify-between p-2 relative border transition-all cursor-pointer ${
+                              isSelected 
+                                ? 'bg-[#2563eb]/20 border-[#2563eb] text-white shadow-md shadow-[#2563eb]/5'
+                                : 'bg-[#0d172a]/40 border-[#1e293b]/60 text-gray-300 hover:border-[#2563eb]/40'
+                            }`}
+                          >
+                            <span className="text-xs font-bold">{day}</span>
+                            {hasApts && (
+                              <div className="flex gap-1 max-w-full overflow-hidden self-end">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb] shadow-md shadow-[#2563eb]/50"></span>
+                                {dayApts.length > 1 && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-[#7c3aed]"></span>
+                                )}
                               </div>
-                              <div className="flex items-center justify-between text-[10px] text-[#617496] font-mono">
-                                <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {apt.scheduledAt.split('T')[1]?.substring(0, 5) || "10:00"}</span>
-                                <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> {apt.phoneNumber}</span>
-                              </div>
-                              {apt.notes && (
-                                <p className="text-[10px] text-[#617496] bg-[#080d1a]/50 p-2 rounded-lg border border-[#1e293b]/50">
-                                  {apt.notes}
-                                </p>
-                              )}
-                            </div>
-                          ))
-                      )}
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t border-[#1e293b] mt-4">
-                    <div className="bg-[#0d172a]/50 border border-[#1e293b]/80 p-3 rounded-xl flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center text-[#2563eb]">
-                        <Info className="w-4.5 h-4.5" />
+                  {/* 2. Appointments on Selected Day */}
+                  <div className="bg-[#121e36] border border-[#1e293b] rounded-2xl p-6 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between pb-4 border-b border-[#1e293b] mb-4">
+                        <div>
+                          <span className="text-[10px] text-[#617496] uppercase font-black tracking-wider block">Selected Schedule</span>
+                          <span className="font-extrabold text-sm text-white">
+                            {(() => {
+                              const parts = selectedCalendarDate.split('-');
+                              const y = parts[0];
+                              const mIdx = parts[1] ? parseInt(parts[1]) - 1 : 0;
+                              const d = parts[2] ? parseInt(parts[2]) : 1;
+                              return `${MONTH_NAMES[mIdx] || 'May'} ${d}, ${y}`;
+                            })()}
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold text-[#2563eb] bg-[#2563eb]/10 px-2.5 py-1 rounded-lg">
+                          {appointments.filter(a => a.scheduledAt.startsWith(selectedCalendarDate)).length} Booked
+                        </span>
                       </div>
-                      <p className="text-[10px] text-[#617496] leading-relaxed">
-                        To update clinical appointments, go to the <b className="text-white">Appointments</b> tab.
-                      </p>
+
+                      <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                        {appointments.filter(a => a.scheduledAt.startsWith(selectedCalendarDate)).length === 0 ? (
+                          <div className="text-center py-12">
+                            <CalendarDays className="w-8 h-8 text-[#617496]/50 mx-auto mb-2.5" />
+                            <p className="text-xs font-bold text-[#617496]">No appointments scheduled for this date.</p>
+                            <p className="text-[10px] text-[#617496]/70 mt-1">Click "Schedule Call" to list a new visit.</p>
+                          </div>
+                        ) : (
+                          appointments
+                            .filter(a => a.scheduledAt.startsWith(selectedCalendarDate))
+                            .map((apt) => (
+                              <div key={apt.id} className="bg-[#0d172a]/60 border border-[#1e293b] p-3.5 rounded-xl space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-black text-xs text-white">{apt.customerName}</span>
+                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
+                                    apt.status === 'confirmed' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-900/40' :
+                                    apt.status === 'pending' ? 'bg-amber-950/40 text-amber-400 border border-amber-900/40' :
+                                    'bg-red-950/40 text-red-400 border border-red-900/40'
+                                  }`}>
+                                    {apt.status}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-[10px] text-[#617496] font-mono">
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3.5 h-3.5" /> 
+                                    {(() => {
+                                      const timePart = apt.scheduledAt.includes(' ') 
+                                        ? apt.scheduledAt.split(' ').slice(1).join(' ') 
+                                        : apt.scheduledAt.includes('T') 
+                                          ? apt.scheduledAt.split('T')[1] 
+                                          : '';
+                                      return timePart || apt.scheduledAt;
+                                    })()}
+                                  </span>
+                                  <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> {apt.phoneNumber}</span>
+                                </div>
+                                {apt.notes && (
+                                  <p className="text-[10px] text-[#617496] bg-[#080d1a]/50 p-2 rounded-lg border border-[#1e293b]/50">
+                                    {apt.notes}
+                                  </p>
+                                )}
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-[#1e293b] mt-4">
+                      <div className="bg-[#0d172a]/50 border border-[#1e293b]/80 p-3 rounded-xl flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center text-[#2563eb]">
+                          <Info className="w-4.5 h-4.5" />
+                        </div>
+                        <p className="text-[10px] text-[#617496] leading-relaxed">
+                          To update clinical appointments, go to the <b className="text-white">Appointments</b> tab.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            );
+          })()}
 
           {/* PATIENTS TAB */}
           {activeTab === 'patients' && (
@@ -3291,7 +3766,15 @@ export default function Dashboard({
                   <p className="text-xs text-[#617496]">Complete repository of active patient contact records and clinical voice notes.</p>
                 </div>
                 <button 
-                  onClick={() => setShowPatientModal(true)}
+                  onClick={() => {
+                    setEditingPatient(null);
+                    setIsViewOnly(false);
+                    setBookAppointment(false);
+                    setNewPatient({ name: '', phone: '', email: '', vehicle: '', notes: '', status: 'Active' });
+                    setAptTime('');
+                    setAptServiceId(services[0]?.id || '');
+                    setShowPatientModal(true);
+                  }}
                   className="bg-[#2563eb] hover:bg-[#2563eb]/90 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-1.5 shadow-lg shadow-[#2563eb]/15 transition-all self-start sm:self-auto cursor-pointer"
                 >
                   <Plus className="w-4 h-4" /> Add Patient
@@ -3334,245 +3817,112 @@ export default function Dashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1e293b]/60">
-                      {patients
-                        .filter(p => p.name.toLowerCase().includes(patientSearch.toLowerCase()) || p.phone.includes(patientSearch) || p.vehicle.toLowerCase().includes(patientSearch.toLowerCase()))
-                        .map((p) => (
-                          <tr key={p.id} className="hover:bg-[#121e36]/40 transition-colors">
-                            <td className="p-4 font-bold text-white flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-[#2563eb]/10 text-[#2563eb] flex items-center justify-center font-extrabold font-mono text-xs border border-[#2563eb]/20">
-                                {p.name.substring(0, 1)}
-                              </div>
-                              <div>
-                                <span className="block">{p.name}</span>
-                                <span className={`inline-block text-[8px] font-bold px-1.5 py-0.2 rounded mt-0.5 ${
-                                  p.status === 'Active' ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/20' : 'bg-[#617496]/20 text-[#617496]'
-                                }`}>{p.status}</span>
-                              </div>
-                            </td>
-                            <td className="p-4 space-y-0.5">
-                              <span className="block font-mono text-white/90">{p.phone}</span>
-                              <span className="block text-[10px] text-[#617496]">{p.email}</span>
-                            </td>
-                            <td className="p-4 text-white/80 font-medium">
-                              {p.vehicle}
-                            </td>
-                            <td className="p-4 max-w-xs">
-                              <p className="text-[10px] text-[#617496] leading-relaxed line-clamp-2 bg-[#0d172a]/40 p-2 rounded-lg border border-[#1e293b]/30">
-                                {p.notes}
-                              </p>
-                            </td>
-                            <td className="p-4 text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <button 
-                                  onClick={() => {
-                                    alert(`Initializing call routing simulator with ${p.name}... Open Dialer simulator on top right of landing screen to handle live audio!`);
-                                  }}
-                                  className="text-[#2563eb] bg-[#2563eb]/10 hover:bg-[#2563eb]/20 p-2 rounded-lg border border-[#2563eb]/15 transition-all cursor-pointer"
-                                  title="Simulate Inbound Call"
-                                >
-                                  <Phone className="w-3.5 h-3.5" />
-                                </button>
-                                <button 
-                                  onClick={() => setPatients(patients.filter(pat => pat.id !== p.id))}
-                                  className="text-red-400 bg-red-950/10 hover:bg-red-950/30 p-2 rounded-lg border border-red-950/20 transition-all cursor-pointer"
-                                  title="Remove Patient"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                      {patients.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-[#617496]">
+                            No patients found. Click "Add Patient" to register your first patient.
+                          </td>
+                        </tr>
+                      ) : (
+                        patients
+                          .filter(p => p.name.toLowerCase().includes(patientSearch.toLowerCase()) || p.phone.includes(patientSearch) || (p.vehicle && p.vehicle.toLowerCase().includes(patientSearch.toLowerCase())))
+                          .map((p) => (
+                            <tr key={p.id} className="hover:bg-[#121e36]/40 transition-colors">
+                              <td className="p-4 font-bold text-white flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-[#2563eb]/10 text-[#2563eb] flex items-center justify-center font-extrabold font-mono text-xs border border-[#2563eb]/20">
+                                  {p.name.substring(0, 1)}
+                                </div>
+                                <div>
+                                  <span className="block">{p.name}</span>
+                                  <span className={`inline-block text-[8px] font-bold px-1.5 py-0.2 rounded mt-0.5 ${
+                                    p.status === 'Active' ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/20' : 'bg-[#617496]/20 text-[#617496]'
+                                  }`}>{p.status}</span>
+                                </div>
+                              </td>
+                              <td className="p-4 space-y-0.5">
+                                <span className="block font-mono text-white/90">{p.phone}</span>
+                                <span className="block text-[10px] text-[#617496]">{p.email}</span>
+                              </td>
+                              <td className="p-4 text-white/80 font-medium">
+                                {p.vehicle}
+                              </td>
+                              <td className="p-4 max-w-xs">
+                                <p className="text-[10px] text-[#617496] leading-relaxed line-clamp-2 bg-[#0d172a]/40 p-2 rounded-lg border border-[#1e293b]/30">
+                                  {p.notes}
+                                </p>
+                              </td>
+                              <td className="p-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingPatient(p);
+                                      setNewPatient({
+                                        name: p.name,
+                                        phone: p.phone,
+                                        email: p.email || '',
+                                        vehicle: p.vehicle || '',
+                                        notes: p.notes || '',
+                                        status: p.status || 'Active'
+                                      });
+                                      setIsViewOnly(true);
+                                      setShowPatientModal(true);
+                                    }}
+                                    className="text-blue-400 bg-blue-950/20 hover:bg-blue-950/40 p-2 rounded-lg border border-blue-900/30 transition-all cursor-pointer"
+                                    title="View Patient Details"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setEditingPatient(p);
+                                      setNewPatient({
+                                        name: p.name,
+                                        phone: p.phone,
+                                        email: p.email || '',
+                                        vehicle: p.vehicle || '',
+                                        notes: p.notes || '',
+                                        status: p.status || 'Active'
+                                      });
+                                      setIsViewOnly(false);
+                                      setBookAppointment(false);
+                                      setShowPatientModal(true);
+                                    }}
+                                    className="text-amber-400 bg-amber-950/20 hover:bg-amber-950/40 p-2 rounded-lg border border-amber-900/30 transition-all cursor-pointer"
+                                    title="Edit Patient"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={async () => {
+                                      if (confirm(`Are you sure you want to delete patient "${p.name}"?`)) {
+                                        try {
+                                          const { error } = await supabase
+                                            .from('patients')
+                                            .delete()
+                                            .eq('id', p.id);
+                                          if (!error) {
+                                            setPatients(patients.filter(pat => pat.id !== p.id));
+                                          } else {
+                                            console.error("Error deleting patient:", error);
+                                          }
+                                        } catch (err) {
+                                          console.error("Error deleting patient:", err);
+                                        }
+                                      }
+                                    }}
+                                    className="text-red-400 bg-red-950/20 hover:bg-red-950/40 p-2 rounded-lg border border-red-900/30 transition-all cursor-pointer"
+                                    title="Delete Patient"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                      )}
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* HELP SUPPORT TAB */}
-          {activeTab === 'support' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-6 space-y-6"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#121e36] border border-[#1e293b] p-6 rounded-2xl">
-                <div>
-                  <h3 className="text-white font-display font-black text-base tracking-tight">MediCall Help Desk</h3>
-                  <p className="text-xs text-[#617496]">Chat with the clinical AI developer or manage platform support tickets.</p>
-                </div>
-                <div className="bg-[#080d1a] border border-[#1e293b] px-4 py-1.5 rounded-xl flex items-center gap-2 text-xs">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span className="font-bold text-[#617496]">Server response time:</span>
-                  <span className="font-mono text-emerald-400 font-bold">24ms</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                
-                {/* 1. Ticket List (Left 5 cols) */}
-                <div className="lg:col-span-5 space-y-3 bg-[#121e36] border border-[#1e293b] p-5 rounded-2xl flex flex-col h-[520px]">
-                  <div className="flex items-center justify-between pb-3 border-b border-[#1e293b]">
-                    <span className="text-xs font-black text-white uppercase tracking-wider font-display">Active Tickets</span>
-                    <button 
-                      onClick={() => {
-                        const title = prompt("Enter support ticket subject:");
-                        if (title) {
-                          const newTicket = {
-                            id: 't' + (supportTickets.length + 1),
-                            title,
-                            status: 'Open',
-                            priority: 'High',
-                            date: 'May 16, 2026',
-                            category: 'General Inquiry',
-                            description: 'Awaiting support administrator review.'
-                          };
-                          setSupportTickets([newTicket, ...supportTickets]);
-                          setSelectedTicketId(newTicket.id);
-                        }
-                      }}
-                      className="text-[10px] font-bold text-white bg-[#2563eb] px-2.5 py-1 rounded-lg hover:bg-[#2563eb]/90 transition-all cursor-pointer"
-                    >
-                      + Create Ticket
-                    </button>
-                  </div>
-
-                  <div className="space-y-2.5 overflow-y-auto flex-1 pr-1 scrollbar-none">
-                    {supportTickets.map((t) => {
-                      const isSelected = selectedTicketId === t.id;
-                      return (
-                        <div 
-                          key={t.id}
-                          onClick={() => setSelectedTicketId(t.id)}
-                          className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                            isSelected 
-                              ? 'bg-[#0d172a] border-[#2563eb]/80 shadow-md shadow-[#2563eb]/5' 
-                              : 'bg-[#0d172a]/30 border-[#1e293b]/70 hover:border-[#2563eb]/40'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[9px] font-mono font-bold text-[#617496]">{t.category}</span>
-                            <span className={`text-[8px] font-black px-1.5 py-0.2 rounded ${
-                              t.priority === 'Critical' ? 'bg-rose-950/40 text-rose-400 border border-rose-900/30' :
-                              t.priority === 'High' ? 'bg-amber-950/40 text-amber-400 border border-amber-900/30' :
-                              'bg-emerald-950/40 text-emerald-400 border border-emerald-900/30'
-                            }`}>{t.priority}</span>
-                          </div>
-                          <span className="font-bold text-xs text-white block mb-2">{t.title}</span>
-                          <div className="flex items-center justify-between text-[10px] text-[#617496] font-mono">
-                            <span>Status: <b className={t.status === 'Resolved' ? 'text-emerald-400' : 'text-amber-400'}>{t.status}</b></span>
-                            <span>{t.date}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 2. Ticket View & AI Live Assistant (Right 7 cols) */}
-                <div className="lg:col-span-7 bg-[#121e36] border border-[#1e293b] rounded-2xl flex flex-col h-[520px] overflow-hidden">
-                  
-                  {/* Top Bar Tabs: Switch between Selected Ticket and Live Developer Bot */}
-                  <div className="bg-[#0d172a] border-b border-[#1e293b] px-4 py-3 flex items-center justify-between">
-                    <span className="text-xs font-black text-white flex items-center gap-2 font-display">
-                      <Headphones className="w-4 h-4 text-[#2563eb]" /> Clinical AI Assistant Desk
-                    </span>
-                    <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-950/30 border border-emerald-900/20 px-2 py-0.5 rounded-full uppercase tracking-wider">Online</span>
-                  </div>
-
-                  {/* Chat interface */}
-                  <div className="flex-1 p-4 overflow-y-auto space-y-3.5 scrollbar-none flex flex-col justify-between">
-                    
-                    {/* Selected ticket details block at the top */}
-                    {supportTickets.find(t => t.id === selectedTicketId) && (
-                      <div className="bg-[#0d172a]/50 border border-[#1e293b] p-3.5 rounded-xl">
-                        <span className="text-[9px] text-[#617496] uppercase font-bold tracking-wider block">Currently Viewing:</span>
-                        <h4 className="font-extrabold text-xs text-white mt-0.5">{supportTickets.find(t => t.id === selectedTicketId)?.title}</h4>
-                        <p className="text-[10px] text-[#617496] mt-2 leading-relaxed bg-[#080d1a] p-2 rounded-lg border border-[#1e293b]/50">
-                          {supportTickets.find(t => t.id === selectedTicketId)?.description}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Chat Messages */}
-                    <div className="space-y-3.5 flex-1 overflow-y-auto pr-1">
-                      {supportChat.map((msg, idx) => (
-                        <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`p-3 rounded-xl max-w-sm text-xs leading-relaxed ${
-                            msg.sender === 'user'
-                              ? 'bg-[#2563eb] text-white rounded-br-none'
-                              : 'bg-[#0d172a] text-[#F8FAFC] border border-[#1e293b] rounded-bl-none'
-                          }`}>
-                            <p>{msg.text}</p>
-                            <span className="text-[8px] font-mono text-[#617496] block text-right mt-1.5">{msg.time}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Predefined Helper Question Pills */}
-                    <div className="pt-2 border-t border-[#1e293b]/60 flex gap-2 overflow-x-auto pb-1 scrollbar-none shrink-0">
-                      {[
-                        "How do I add medical keywords to my voice agent?",
-                        "What is the phone calling pricing per minute?",
-                        "How do I embed the web floating widget?"
-                      ].map((pill, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => {
-                            const userMsg = { sender: 'user', text: pill, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-                            let aiResponseText = '';
-                            if (pill.includes('keywords')) {
-                              aiResponseText = "You can add custom medical vocabulary and auto-replies directly within the 'Knowledge' tab. Add key-value entries like 'insurance' or 'emergency services' to instantly feed it to the agent's brain.";
-                            } else if (pill.includes('pricing')) {
-                              aiResponseText = "Inbound/outbound calls on MediCall are flat-rate at $0.05 per minute. All local phone numbers are priced at $1.50 per month, completely managed under your 'Plan & Billing' wallet.";
-                            } else {
-                              aiResponseText = "To embed the floating dialer widget, copy the HTML script block from the 'Widget' tab and place it before the closing </body> tag of your website. It will configure style and color automatically!";
-                            }
-
-                            const aiMsg = { sender: 'ai', text: aiResponseText, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-                            setSupportChat(prev => [...prev, userMsg, aiMsg]);
-                          }}
-                          className="text-[10px] text-white/90 bg-[#121e36] border border-[#1e293b] px-3 py-1.5 rounded-full hover:border-[#2563eb] transition-all whitespace-nowrap cursor-pointer hover:bg-[#2563eb]/10"
-                        >
-                          {pill}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Message input */}
-                    <form 
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!newSupportChatMsg.trim()) return;
-                        const userMsg = { sender: 'user', text: newSupportChatMsg, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-                        const aiMsg = { sender: 'ai', text: "Your message has been captured by the ticketing service! Our clinical operations team will response within 2 hours. Feel free to use the interactive pills below for instant answers.", time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-                        setSupportChat(prev => [...prev, userMsg, aiMsg]);
-                        setNewSupportChatMsg('');
-                      }}
-                      className="flex gap-2 shrink-0 pt-2"
-                    >
-                      <input 
-                        type="text" 
-                        placeholder="Type a custom query to MediCall support team..." 
-                        value={newSupportChatMsg}
-                        onChange={(e) => setNewSupportChatMsg(e.target.value)}
-                        className="flex-1 bg-[#0d172a] border border-[#1e293b] focus:border-[#2563eb] text-xs text-white rounded-xl px-3.5 py-2.5 outline-none transition-all placeholder:text-[#617496]"
-                      />
-                      <button 
-                        type="submit" 
-                        className="bg-[#2563eb] hover:bg-[#2563eb]/90 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md cursor-pointer shrink-0"
-                      >
-                        Send
-                      </button>
-                    </form>
-
-                  </div>
-
-                </div>
-
               </div>
             </motion.div>
           )}
@@ -3863,21 +4213,21 @@ export default function Dashboard({
 
       {/* MODALS */}
 
-      {/* NEW APPOINTMENT MODAL */}
+      {/* NEW/EDIT APPOINTMENT MODAL */}
       {showAptModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-xl shadow-2xl relative overflow-hidden animate-zoomIn">
             
             {/* Header */}
             <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
-              <h3 className="text-white font-extrabold text-sm">Book Appointment</h3>
-              <button onClick={() => setShowAptModal(false)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+              <h3 className="text-white font-extrabold text-sm">{editingAppointment ? 'Edit Appointment' : 'Book Appointment'}</h3>
+              <button onClick={() => { setShowAptModal(false); setEditingAppointment(null); }} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
  
             {/* Form */}
-            <form onSubmit={handleCreateAppointment} className="p-6 space-y-4">
+            <form onSubmit={handleSaveAppointment} className="p-6 space-y-4">
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -3954,7 +4304,7 @@ export default function Dashboard({
                 <div>
                   <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Date & Time *</label>
                   <input 
-                    type="datetime-local" 
+                    type={editingAppointment ? "text" : "datetime-local"} 
                     required
                     value={newApt.scheduledAt}
                     onChange={(e) => setNewApt({ ...newApt, scheduledAt: e.target.value })}
@@ -3991,7 +4341,7 @@ export default function Dashboard({
               <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end gap-3">
                 <button 
                   type="button" 
-                  onClick={() => setShowAptModal(false)}
+                  onClick={() => { setShowAptModal(false); setEditingAppointment(null); }}
                   className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
                 >
                   Cancel
@@ -4000,7 +4350,7 @@ export default function Dashboard({
                   type="submit" 
                   className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
                 >
-                  Book Appointment
+                  {editingAppointment ? 'Save Changes' : 'Book Appointment'}
                 </button>
               </div>
  
@@ -4016,27 +4366,106 @@ export default function Dashboard({
             
             {/* Header */}
             <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
-              <h3 className="text-white font-extrabold text-sm">Add New Patient</h3>
-              <button onClick={() => setShowPatientModal(false)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+              <h3 className="text-white font-extrabold text-sm">
+                {isViewOnly ? 'View Patient Profile' : editingPatient ? 'Edit Patient Details' : 'Add New Patient'}
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowPatientModal(false);
+                  setEditingPatient(null);
+                  setIsViewOnly(false);
+                }} 
+                className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
  
             {/* Form */}
-            <form onSubmit={(e) => {
+            <form onSubmit={async (e) => {
               e.preventDefault();
-              const pRecord = {
-                id: 'p' + (patients.length + 1),
-                name: newPatient.name,
-                phone: newPatient.phone,
-                email: newPatient.email,
-                vehicle: newPatient.vehicle,
-                notes: newPatient.notes,
-                status: 'Active'
-              };
-              setPatients([pRecord, ...patients]);
-              setShowPatientModal(false);
-              setNewPatient({ name: '', phone: '', email: '', vehicle: '', notes: '' });
+              if (isViewOnly) {
+                setShowPatientModal(false);
+                setEditingPatient(null);
+                return;
+              }
+
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                const userId = user ? user.id : 'usr-demo';
+                const pId = editingPatient ? editingPatient.id : 'pat-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+
+                const pRecord = {
+                  id: pId,
+                  user_id: userId,
+                  name: newPatient.name,
+                  phone: newPatient.phone,
+                  email: newPatient.email,
+                  vehicle: newPatient.vehicle,
+                  notes: newPatient.notes,
+                  status: newPatient.status || 'Active'
+                };
+
+                if (editingPatient) {
+                  // Update Patient
+                  const { error } = await supabase
+                    .from('patients')
+                    .update(pRecord)
+                    .eq('id', editingPatient.id);
+                  if (!error) {
+                    setPatients(patients.map(p => p.id === editingPatient.id ? pRecord : p));
+                  } else {
+                    console.error('Error updating patient in Supabase:', error);
+                  }
+                } else {
+                  // Insert Patient
+                  const { error } = await supabase
+                    .from('patients')
+                    .insert(pRecord);
+                  if (!error) {
+                    setPatients([pRecord, ...patients]);
+                  } else {
+                    console.error('Error inserting patient in Supabase:', error);
+                  }
+
+                  // If book appointment is checked, also schedule appointment
+                  if (bookAppointment && aptTime) {
+                    const selectedService = services.find(s => s.id === aptServiceId) || services[0];
+                    const newAptObj = {
+                      id: 'apt-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+                      user_id: userId,
+                      customerName: newPatient.name,
+                      phoneNumber: newPatient.phone,
+                      vehicleYear: '2026',
+                      vehicleMake: newPatient.vehicle || 'N/A',
+                      vehicleModel: '',
+                      serviceId: selectedService?.id || 'srv-2',
+                      scheduledAt: aptTime.replace('T', ' '),
+                      status: 'pending',
+                      notes: 'Automatically created from Patient Onboarding. ' + (newPatient.notes || '')
+                    };
+
+                    const { error: aptErr } = await supabase
+                      .from('appointments')
+                      .insert(newAptObj);
+                    
+                    if (!aptErr) {
+                      const { user_id: _, ...localApt } = newAptObj as any;
+                      onUpdateAppointments([localApt, ...appointments]);
+                    } else {
+                      console.error('Error inserting auto-appointment:', aptErr);
+                    }
+                  }
+                }
+              } catch (err) {
+                console.error('Exception saving patient details:', err);
+              } finally {
+                setShowPatientModal(false);
+                setEditingPatient(null);
+                setBookAppointment(false);
+                setNewPatient({ name: '', phone: '', email: '', vehicle: '', notes: '', status: 'Active' });
+                setAptTime('');
+              }
             }} className="p-6 space-y-4">
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -4045,10 +4474,11 @@ export default function Dashboard({
                   <input 
                     type="text" 
                     required
+                    disabled={isViewOnly}
                     value={newPatient.name}
                     onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })}
                     placeholder="John Smith"
-                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
+                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all disabled:opacity-60"
                   />
                 </div>
                 <div>
@@ -4056,10 +4486,11 @@ export default function Dashboard({
                   <input 
                     type="text" 
                     required
+                    disabled={isViewOnly}
                     value={newPatient.phone}
                     onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
                     placeholder="(555) 000-0000"
-                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
+                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all disabled:opacity-60"
                   />
                 </div>
               </div>
@@ -4069,21 +4500,39 @@ export default function Dashboard({
                   <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Email Address</label>
                   <input 
                     type="email" 
+                    disabled={isViewOnly}
                     value={newPatient.email}
                     onChange={(e) => setNewPatient({ ...newPatient, email: e.target.value })}
                     placeholder="john@example.com"
-                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
+                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all disabled:opacity-60"
                   />
                 </div>
                 <div>
                   <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Primary Vehicle / Field</label>
                   <input 
                     type="text" 
+                    disabled={isViewOnly}
                     value={newPatient.vehicle}
                     onChange={(e) => setNewPatient({ ...newPatient, vehicle: e.target.value })}
                     placeholder="Audi Q7 / Cardiology"
-                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
+                    className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all disabled:opacity-60"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Status</label>
+                  <select 
+                    disabled={isViewOnly}
+                    value={newPatient.status}
+                    onChange={(e) => setNewPatient({ ...newPatient, status: e.target.value })}
+                    className="w-full bg-[#020617] border border-[#1F2937] text-xs text-white rounded-xl px-3 py-2 outline-none cursor-pointer focus:border-[#3B82F6] transition-all disabled:opacity-60"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Pending">Pending</option>
+                  </select>
                 </div>
               </div>
  
@@ -4091,27 +4540,83 @@ export default function Dashboard({
                 <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Clinical / Voice Notes</label>
                 <textarea 
                   rows={2}
+                  disabled={isViewOnly}
                   value={newPatient.notes}
                   onChange={(e) => setNewPatient({ ...newPatient, notes: e.target.value })}
                   placeholder="Patient requested recurring updates on cardiovascular report status..."
-                  className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
+                  className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all disabled:opacity-60"
                 />
               </div>
+
+              {/* BOOK APPOINTMENT DURING PATIENT CREATION */}
+              {!isViewOnly && !editingPatient && (
+                <div className="bg-[#020617] border border-[#1F2937] p-4 rounded-xl space-y-3.5">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-white select-none cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={bookAppointment}
+                      onChange={(e) => {
+                        setBookAppointment(e.target.checked);
+                        if (e.target.checked && services.length > 0 && !aptServiceId) {
+                          setAptServiceId(services[0].id);
+                        }
+                      }}
+                      className="rounded border-[#1F2937] text-[#3B82F6] focus:ring-0 bg-transparent w-4 h-4 cursor-pointer"
+                    />
+                    Book Appointment for this Patient?
+                  </label>
+
+                  {bookAppointment && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 animate-fadeIn">
+                      <div>
+                        <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Select Service *</label>
+                        <select 
+                          required={bookAppointment}
+                          value={aptServiceId}
+                          onChange={(e) => setAptServiceId(e.target.value)}
+                          className="w-full bg-[#111827] border border-[#1F2937] text-xs text-white rounded-xl px-3 py-2 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
+                        >
+                          {services.map((srv) => (
+                            <option key={srv.id} value={srv.id}>{srv.name} (${srv.price})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Appointment Time *</label>
+                        <input 
+                          type="datetime-local"
+                          required={bookAppointment}
+                          value={aptTime}
+                          onChange={(e) => setAptTime(e.target.value)}
+                          className="w-full bg-[#111827] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
  
               <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end gap-3">
                 <button 
                   type="button" 
-                  onClick={() => setShowPatientModal(false)}
+                  onClick={() => {
+                    setShowPatientModal(false);
+                    setEditingPatient(null);
+                    setIsViewOnly(false);
+                    setBookAppointment(false);
+                  }}
                   className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
                 >
-                  Cancel
+                  {isViewOnly ? 'Close' : 'Cancel'}
                 </button>
-                <button 
-                  type="submit" 
-                  className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
-                >
-                  Add Patient
-                </button>
+                {!isViewOnly && (
+                  <button 
+                    type="submit" 
+                    className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
+                  >
+                    {editingPatient ? 'Save Changes' : 'Add Patient'}
+                  </button>
+                )}
               </div>
  
             </form>
@@ -4229,19 +4734,28 @@ export default function Dashboard({
         </div>
       )}
 
-      {/* ADD SERVICE MODAL */}
+      {/* ADD / EDIT SERVICE MODAL */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-xl shadow-2xl relative overflow-hidden animate-zoomIn">
             
             <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
-              <h3 className="text-white font-extrabold text-sm">Add Service</h3>
-              <button onClick={() => setShowServiceModal(false)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+              <h3 className="text-white font-extrabold text-sm">{editingService ? 'Edit Service' : 'Add Service'}</h3>
+              <button 
+                onClick={() => {
+                  setShowServiceModal(false);
+                  setEditingService(null);
+                  setNewService({
+                    name: '', description: '', durationMinutes: 60, priceType: 'Fixed Price', price: 49.99, isActive: true
+                  });
+                }} 
+                className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
  
-            <form onSubmit={handleCreateService} className="p-6 space-y-4">
+            <form onSubmit={handleSaveService} className="p-6 space-y-4">
               
               <div>
                 <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Service Name *</label>
@@ -4306,7 +4820,13 @@ export default function Dashboard({
               <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end gap-3">
                 <button 
                   type="button" 
-                  onClick={() => setShowServiceModal(false)}
+                  onClick={() => {
+                    setShowServiceModal(false);
+                    setEditingService(null);
+                    setNewService({
+                      name: '', description: '', durationMinutes: 60, priceType: 'Fixed Price', price: 49.99, isActive: true
+                    });
+                  }}
                   className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
                 >
                   Cancel
@@ -4315,7 +4835,7 @@ export default function Dashboard({
                   type="submit" 
                   className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
                 >
-                  Add Service
+                  {editingService ? 'Save Changes' : 'Add Service'}
                 </button>
               </div>
  
@@ -4438,6 +4958,135 @@ export default function Dashboard({
                 <button 
                   type="button" 
                   onClick={() => setViewingFaq(null)}
+                  className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-5 py-2.5 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW SERVICE DETAILS MODAL */}
+      {viewingService && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-xl shadow-2xl relative overflow-hidden animate-zoomIn">
+            
+            <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="bg-[#111827] text-[9px] font-bold font-mono text-[#3B82F6] px-2 py-0.5 rounded border border-[#1F2937] uppercase tracking-wider">
+                  {viewingService.priceType}
+                </span>
+                <h3 className="text-white font-extrabold text-sm">Service Details</h3>
+              </div>
+              <button onClick={() => setViewingService(null)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="space-y-2">
+                <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Service Name</h4>
+                <p className="text-sm font-bold text-white leading-relaxed">{viewingService.name}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-t border-[#1F2937]/50 pt-4">
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Duration</h4>
+                  <p className="text-xs text-[#94A3B8] font-semibold">{viewingService.durationMinutes} minutes</p>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Price</h4>
+                  <p className="text-sm text-[#3B82F6] font-mono font-extrabold">${viewingService.price}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t border-[#1F2937]/50 pt-4">
+                <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Description</h4>
+                <p className="text-xs text-[#94A3B8] leading-relaxed whitespace-pre-wrap">{viewingService.description || 'No description provided.'}</p>
+              </div>
+              
+              <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end">
+                <button 
+                  type="button" 
+                  onClick={() => setViewingService(null)}
+                  className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-5 py-2.5 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW APPOINTMENT DETAILS MODAL */}
+      {viewingAppointment && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-xl shadow-2xl relative overflow-hidden animate-zoomIn">
+            
+            <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${
+                  viewingAppointment.status === 'confirmed' ? 'text-[#3B82F6] border-[#3B82F6]/40 bg-[#3B82F6]/5' :
+                  viewingAppointment.status === 'completed' ? 'text-emerald-400 border-emerald-800/40 bg-emerald-950/5' :
+                  'text-[#94A3B8] border-[#1F2937] bg-slate-900/10'
+                }`}>
+                  {viewingAppointment.status}
+                </span>
+                <h3 className="text-white font-extrabold text-sm">Appointment Details</h3>
+              </div>
+              <button onClick={() => setViewingAppointment(null)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Customer Name</h4>
+                  <p className="text-sm font-bold text-white leading-relaxed">{viewingAppointment.customerName}</p>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Phone Number</h4>
+                  <p className="text-xs text-[#94A3B8] font-mono font-semibold">{viewingAppointment.phoneNumber}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-t border-[#1F2937]/50 pt-4">
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Vehicle Details</h4>
+                  <p className="text-xs text-[#94A3B8] font-semibold">{viewingAppointment.vehicleYear} {viewingAppointment.vehicleMake} {viewingAppointment.vehicleModel}</p>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Service</h4>
+                  <p className="text-xs text-white font-bold bg-[#020617] border border-[#1F2937] px-2.5 py-1 rounded-lg inline-block">
+                    {services.find(s => s.id === viewingAppointment.serviceId)?.name || 'Oil Change'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-t border-[#1F2937]/50 pt-4">
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Scheduled Time</h4>
+                  <p className="text-xs text-[#94A3B8] font-semibold">{viewingAppointment.scheduledAt}</p>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Status</h4>
+                  <span className="text-xs text-[#94A3B8] font-semibold capitalize">{viewingAppointment.status}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t border-[#1F2937]/50 pt-4">
+                <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Appointment Notes</h4>
+                <p className="text-xs text-[#94A3B8] leading-relaxed whitespace-pre-wrap">{viewingAppointment.notes || 'No notes provided.'}</p>
+              </div>
+              
+              <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end">
+                <button 
+                  type="button" 
+                  onClick={() => setViewingAppointment(null)}
                   className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-5 py-2.5 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
                 >
                   Close

@@ -143,6 +143,26 @@ export default function App() {
         if (faqsData && !faqsErr) {
           setFaqs(faqsData);
         }
+
+        // Fetch Services from Supabase
+        const { data: servicesData, error: servicesErr } = await supabase
+          .from('services')
+          .select('*')
+          .eq('user_id', user.id);
+
+        if (servicesData && !servicesErr) {
+          setServices(servicesData);
+        }
+
+        // Fetch Appointments from Supabase
+        const { data: appointmentsData, error: appointmentsErr } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('user_id', user.id);
+
+        if (appointmentsData && !appointmentsErr) {
+          setAppointments(appointmentsData);
+        }
       } catch (err) {
         console.error('Error fetching data from Supabase:', err);
       }
@@ -189,11 +209,23 @@ export default function App() {
   };
 
   // Handle direct appointment booking from landing page live demo widget
-  const handleLandingPageBooking = (name: string, vehicle: string, serviceName: string) => {
+  const handleLandingPageBooking = async (name: string, vehicle: string, serviceName: string) => {
     const matchedService = services.find(s => s.name.toLowerCase().includes(serviceName.toLowerCase())) || services[0];
     
-    const newApt: Appointment = {
-      id: `apt-${Date.now()}`,
+    const id = `apt-${Date.now()}`;
+    let user_id = null;
+    if (isLoggedIn) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        user_id = user ? user.id : null;
+      } catch (err) {
+        console.error('Error fetching user for landing page booking:', err);
+      }
+    }
+
+    const newAptObj = {
+      id,
+      user_id,
       customerName: name,
       phoneNumber: '9999999999',
       vehicleYear: '2021',
@@ -201,11 +233,22 @@ export default function App() {
       vehicleModel: vehicle.split(' ')[2] || 'Camry',
       serviceId: matchedService?.id || 'srv-2',
       scheduledAt: 'Saturday 10:00 AM',
-      status: 'confirmed',
+      status: 'confirmed' as const,
       notes: 'Booked directly via Landing Page Live Demo Phone!'
     };
 
-    setAppointments(prev => [newApt, ...prev]);
+    if (isLoggedIn) {
+      try {
+        await supabase
+          .from('appointments')
+          .insert(newAptObj);
+      } catch (err) {
+        console.error('Error storing landing page appointment to Supabase:', err);
+      }
+    }
+
+    const { user_id: _, ...localApt } = newAptObj as any;
+    setAppointments(prev => [localApt, ...prev]);
 
     // Create custom conversation transcript log
     const newConv: Conversation = {
@@ -232,7 +275,7 @@ export default function App() {
   };
 
   // Helper component to guard protected dashboard routes
-  const ProtectedDashboard = ({ activeTab }: { activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'support' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'notifications' | 'settings' }) => {
+  const ProtectedDashboard = ({ activeTab }: { activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'notifications' | 'settings' }) => {
     if (!isLoggedIn) {
       return <Navigate to="/login" replace />;
     }
@@ -259,9 +302,13 @@ export default function App() {
           await supabase.auth.signOut();
           setIsLoggedIn(false);
           setFaqs([]);
+          setServices([]);
+          setAppointments([]);
           setProfile(INITIAL_PROFILE);
           setHours(INITIAL_HOURS);
           localStorage.removeItem('vd_faqs');
+          localStorage.removeItem('vd_services');
+          localStorage.removeItem('vd_appointments');
           localStorage.removeItem('vd_profile');
           localStorage.removeItem('vd_hours');
         }}
@@ -293,7 +340,6 @@ export default function App() {
           <Route path="/appointments" element={<ProtectedDashboard activeTab="appointments" />} />
           <Route path="/schedule" element={<ProtectedDashboard activeTab="schedule" />} />
           <Route path="/patients" element={<ProtectedDashboard activeTab="patients" />} />
-          <Route path="/support" element={<ProtectedDashboard activeTab="support" />} />
           <Route path="/agents" element={<ProtectedDashboard activeTab="agents" />} />
           <Route path="/services" element={<ProtectedDashboard activeTab="services" />} />
           <Route path="/faqs" element={<ProtectedDashboard activeTab="faqs" />} />

@@ -113,3 +113,38 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+
+-- ==========================================
+-- 5. Create Services Table
+-- ==========================================
+CREATE TABLE IF NOT EXISTS public.services (
+    id TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    "durationMinutes" INTEGER DEFAULT 60,
+    "priceType" TEXT NOT NULL DEFAULT 'Fixed Price',
+    price NUMERIC(10, 2) DEFAULT 0.00,
+    "isActive" BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable Row-Level Security (RLS)
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+
+-- Create Policies
+CREATE POLICY "Users can view their own Services" ON public.services 
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own Services" ON public.services 
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own Services" ON public.services 
+    FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own Services" ON public.services 
+    FOR DELETE USING (auth.uid() = user_id);
+
+COMMENT ON TABLE public.services IS 'Stores user-specific services catalog elements authorized for AI Receptionist';
+

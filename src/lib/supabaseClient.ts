@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { BusinessProfile, BusinessHours } from '../types';
-import { INITIAL_FAQS } from '../data';
+import { INITIAL_FAQS, INITIAL_SERVICES, INITIAL_APPOINTMENTS } from '../data';
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
@@ -307,6 +307,24 @@ class LocalStorageSupabaseMock {
       return INITIAL_FAQS;
     };
 
+    const getServices = () => {
+      const saved = localStorage.getItem(`supabase_mock_services_${userId}`);
+      if (saved) return JSON.parse(saved);
+      return INITIAL_SERVICES;
+    };
+
+    const getAppointments = () => {
+      const saved = localStorage.getItem(`supabase_mock_appointments_${userId}`);
+      if (saved) return JSON.parse(saved);
+      return INITIAL_APPOINTMENTS;
+    };
+
+    const getPatients = () => {
+      const saved = localStorage.getItem(`supabase_mock_patients_${userId}`);
+      if (saved) return JSON.parse(saved);
+      return [];
+    };
+
     return {
       select: (fields: string = '*') => {
         return {
@@ -359,6 +377,24 @@ class LocalStorageSupabaseMock {
                     data = data.filter((f: any) => f[field] === val);
                   }
                   return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+                } else if (tableName === 'services') {
+                  let data = getServices();
+                  if (field !== 'user_id') {
+                    data = data.filter((s: any) => s[field] === val);
+                  }
+                  return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+                } else if (tableName === 'appointments') {
+                  let data = getAppointments();
+                  if (field !== 'user_id') {
+                    data = data.filter((a: any) => a[field] === val);
+                  }
+                  return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+                } else if (tableName === 'patients') {
+                  let data = getPatients();
+                  if (field !== 'user_id') {
+                    data = data.filter((p: any) => p[field] === val);
+                  }
+                  return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
                 }
                 return onfulfilled ? onfulfilled({ data: null, error: { message: `Not supported` } }) : { data: null, error: { message: `Not supported` } };
               }
@@ -368,6 +404,15 @@ class LocalStorageSupabaseMock {
             await new Promise(r => setTimeout(r, 100));
             if (tableName === 'faqs') {
               const data = getFaqs();
+              return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+            } else if (tableName === 'services') {
+              const data = getServices();
+              return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+            } else if (tableName === 'appointments') {
+              const data = getAppointments();
+              return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+            } else if (tableName === 'patients') {
+              const data = getPatients();
               return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
             }
             return onfulfilled ? onfulfilled({ data: null, error: { message: `Not supported` } }) : { data: null, error: { message: `Not supported` } };
@@ -390,6 +435,54 @@ class LocalStorageSupabaseMock {
               }));
               const updatedList = [...list, ...processed];
               localStorage.setItem(`supabase_mock_faqs_${userId}`, JSON.stringify(updatedList));
+              return onfulfilled ? onfulfilled({ data: processed, error: null }) : { data: processed, error: null };
+            } else if (tableName === 'services') {
+              const list = getServices();
+              const itemsToInsert = Array.isArray(newData) ? newData : [newData];
+              const processed = itemsToInsert.map(item => ({
+                id: item.id || `srv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                name: item.name,
+                description: item.description,
+                durationMinutes: item.durationMinutes,
+                priceType: item.priceType,
+                price: item.price,
+                isActive: item.isActive !== undefined ? item.isActive : true
+              }));
+              const updatedList = [...list, ...processed];
+              localStorage.setItem(`supabase_mock_services_${userId}`, JSON.stringify(updatedList));
+              return onfulfilled ? onfulfilled({ data: processed, error: null }) : { data: processed, error: null };
+            } else if (tableName === 'appointments') {
+              const list = getAppointments();
+              const itemsToInsert = Array.isArray(newData) ? newData : [newData];
+              const processed = itemsToInsert.map(item => ({
+                id: item.id || `apt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                customerName: item.customerName,
+                phoneNumber: item.phoneNumber,
+                vehicleYear: item.vehicleYear,
+                vehicleMake: item.vehicleMake,
+                vehicleModel: item.vehicleModel,
+                serviceId: item.serviceId,
+                scheduledAt: item.scheduledAt,
+                status: item.status || 'confirmed',
+                notes: item.notes || ''
+              }));
+              const updatedList = [...list, ...processed];
+              localStorage.setItem(`supabase_mock_appointments_${userId}`, JSON.stringify(updatedList));
+              return onfulfilled ? onfulfilled({ data: processed, error: null }) : { data: processed, error: null };
+            } else if (tableName === 'patients') {
+              const list = getPatients();
+              const itemsToInsert = Array.isArray(newData) ? newData : [newData];
+              const processed = itemsToInsert.map(item => ({
+                id: item.id || `pat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                name: item.name,
+                phone: item.phone,
+                email: item.email,
+                vehicle: item.vehicle,
+                notes: item.notes || '',
+                status: item.status || 'Active'
+              }));
+              const updatedList = [...list, ...processed];
+              localStorage.setItem(`supabase_mock_patients_${userId}`, JSON.stringify(updatedList));
               return onfulfilled ? onfulfilled({ data: processed, error: null }) : { data: processed, error: null };
             }
             return onfulfilled ? onfulfilled({ data: null, error: { message: 'Table not supported in mock' } }) : { data: null, error: { message: 'Table not supported in mock' } };
@@ -438,6 +531,45 @@ class LocalStorageSupabaseMock {
                   });
                   localStorage.setItem(`supabase_mock_faqs_${userId}`, JSON.stringify(updatedList));
                   return onfulfilled ? onfulfilled({ data: updatedItem, error: null }) : { data: updatedItem, error: null };
+                } else if (tableName === 'services') {
+                  const list = getServices();
+                  let updatedItem = null;
+                  const updatedList = list.map((item: any) => {
+                    if (item[field] === val) {
+                      updatedItem = { ...item, ...updatedData };
+                      delete (updatedItem as any).user_id;
+                      return updatedItem;
+                    }
+                    return item;
+                  });
+                  localStorage.setItem(`supabase_mock_services_${userId}`, JSON.stringify(updatedList));
+                  return onfulfilled ? onfulfilled({ data: updatedItem, error: null }) : { data: updatedItem, error: null };
+                } else if (tableName === 'appointments') {
+                  const list = getAppointments();
+                  let updatedItem = null;
+                  const updatedList = list.map((item: any) => {
+                    if (item[field] === val) {
+                      updatedItem = { ...item, ...updatedData };
+                      delete (updatedItem as any).user_id;
+                      return updatedItem;
+                    }
+                    return item;
+                  });
+                  localStorage.setItem(`supabase_mock_appointments_${userId}`, JSON.stringify(updatedList));
+                  return onfulfilled ? onfulfilled({ data: updatedItem, error: null }) : { data: updatedItem, error: null };
+                } else if (tableName === 'patients') {
+                  const list = getPatients();
+                  let updatedItem = null;
+                  const updatedList = list.map((item: any) => {
+                    if (item[field] === val) {
+                      updatedItem = { ...item, ...updatedData };
+                      delete (updatedItem as any).user_id;
+                      return updatedItem;
+                    }
+                    return item;
+                  });
+                  localStorage.setItem(`supabase_mock_patients_${userId}`, JSON.stringify(updatedList));
+                  return onfulfilled ? onfulfilled({ data: updatedItem, error: null }) : { data: updatedItem, error: null };
                 }
                 return onfulfilled ? onfulfilled({ data: null, error: { message: 'Not supported' } }) : { data: null, error: { message: 'Not supported' } };
               }
@@ -445,7 +577,7 @@ class LocalStorageSupabaseMock {
           }
         };
       },
-
+ 
       delete: () => {
         return {
           eq: (field: string, val: any) => {
@@ -456,6 +588,21 @@ class LocalStorageSupabaseMock {
                   const list = getFaqs();
                   const filtered = list.filter((item: any) => item[field] !== val);
                   localStorage.setItem(`supabase_mock_faqs_${userId}`, JSON.stringify(filtered));
+                  return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
+                } else if (tableName === 'services') {
+                  const list = getServices();
+                  const filtered = list.filter((item: any) => item[field] !== val);
+                  localStorage.setItem(`supabase_mock_services_${userId}`, JSON.stringify(filtered));
+                  return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
+                } else if (tableName === 'appointments') {
+                  const list = getAppointments();
+                  const filtered = list.filter((item: any) => item[field] !== val);
+                  localStorage.setItem(`supabase_mock_appointments_${userId}`, JSON.stringify(filtered));
+                  return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
+                } else if (tableName === 'patients') {
+                  const list = getPatients();
+                  const filtered = list.filter((item: any) => item[field] !== val);
+                  localStorage.setItem(`supabase_mock_patients_${userId}`, JSON.stringify(filtered));
                   return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
                 }
                 return onfulfilled ? onfulfilled({ data: null, error: { message: 'Not supported' } }) : { data: null, error: { message: 'Not supported' } };

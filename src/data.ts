@@ -1,34 +1,6 @@
 import { Appointment, Conversation, AIAgent, Service, FAQ, WidgetConfig, BusinessProfile, BusinessHours } from './types';
 
-export const INITIAL_SERVICES: Service[] = [
-  {
-    id: 'srv-1',
-    name: 'Brake Inspection',
-    description: 'Comprehensive brake system inspection including pads, rotors, and fluid',
-    durationMinutes: 45,
-    priceType: 'Starting From',
-    price: 39.99,
-    isActive: true,
-  },
-  {
-    id: 'srv-2',
-    name: 'Oil Change',
-    description: 'Premium synthetic or blend engine oil change and high-quality filter replacement',
-    durationMinutes: 60,
-    priceType: 'Fixed Price',
-    price: 49.99,
-    isActive: true,
-  },
-  {
-    id: 'srv-3',
-    name: 'Tire Rotation & Balance',
-    description: 'Improve tire tread life, improve handling, and ensure a smooth highway ride',
-    durationMinutes: 30,
-    priceType: 'Fixed Price',
-    price: 29.99,
-    isActive: true,
-  }
-];
+export const INITIAL_SERVICES: Service[] = [];
 
 export const INITIAL_AGENTS: AIAgent[] = [
   {
@@ -67,56 +39,7 @@ export const INITIAL_AGENTS: AIAgent[] = [
 
 export const INITIAL_FAQS: FAQ[] = [];
 
-export const INITIAL_APPOINTMENTS: Appointment[] = [
-  {
-    id: 'apt-1',
-    customerName: 'Balot Hussain',
-    phoneNumber: '123456789',
-    vehicleYear: '2019',
-    vehicleMake: 'BMW',
-    vehicleModel: 'A3',
-    serviceId: 'srv-2',
-    scheduledAt: 'May 16, 2026 3:30 PM',
-    status: 'confirmed',
-    notes: 'Needs synthetic oil change and filter check.',
-  },
-  {
-    id: 'apt-2',
-    customerName: 'Daulat Hussain',
-    phoneNumber: '123456789',
-    vehicleYear: '2019',
-    vehicleMake: 'BMW',
-    vehicleModel: '3',
-    serviceId: 'srv-2',
-    scheduledAt: 'May 16, 2026 3:30 PM',
-    status: 'confirmed',
-    notes: 'Regular checkup.',
-  },
-  {
-    id: 'apt-3',
-    customerName: 'Jon Smith test',
-    phoneNumber: '0000000000',
-    vehicleYear: '2021',
-    vehicleMake: 'BMW',
-    vehicleModel: 'A3',
-    serviceId: 'srv-1',
-    scheduledAt: 'May 13, 2026 4:50 PM',
-    status: 'completed',
-    notes: 'Brake squeaking sound check.',
-  },
-  {
-    id: 'apt-4',
-    customerName: 'Daulat Hussain',
-    phoneNumber: '123456789',
-    vehicleYear: '2019',
-    vehicleMake: 'BMW',
-    vehicleModel: '3 Series',
-    serviceId: 'srv-1',
-    scheduledAt: 'May 13, 2026 4:00 PM',
-    status: 'completed',
-    notes: 'Brake pad replacement inspection.',
-  }
-];
+export const INITIAL_APPOINTMENTS: Appointment[] = [];
 
 export const INITIAL_CONVERSATIONS: Conversation[] = [
   {
