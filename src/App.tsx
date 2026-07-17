@@ -133,6 +133,16 @@ export default function App() {
           };
           setHours(formattedHours);
         }
+
+        // Fetch FAQs from Supabase
+        const { data: faqsData, error: faqsErr } = await supabase
+          .from('faqs')
+          .select('*')
+          .eq('user_id', user.id);
+
+        if (faqsData && !faqsErr) {
+          setFaqs(faqsData);
+        }
       } catch (err) {
         console.error('Error fetching data from Supabase:', err);
       }
@@ -248,6 +258,12 @@ export default function App() {
         onSignOut={async () => {
           await supabase.auth.signOut();
           setIsLoggedIn(false);
+          setFaqs([]);
+          setProfile(INITIAL_PROFILE);
+          setHours(INITIAL_HOURS);
+          localStorage.removeItem('vd_faqs');
+          localStorage.removeItem('vd_profile');
+          localStorage.removeItem('vd_hours');
         }}
       />
     );

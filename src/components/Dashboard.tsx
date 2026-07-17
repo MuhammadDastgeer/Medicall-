@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  BarChart3, Calendar, MessageSquare, Settings, Users, FolderKanban, 
+  BarChart3, Calendar, MessageSquare, Settings, Users, User, FolderKanban, 
   HelpCircle, Code, LogOut, ChevronRight, ChevronLeft, Plus, Search, Filter, 
   TrendingUp, Play, Edit, Trash2, CheckCircle2, Clock, MapPin, 
   Mail, Phone, RefreshCw, Star, Info, ShieldAlert, Sparkles, X, ChevronDown, Check,
@@ -87,6 +87,8 @@ export default function Dashboard({
   const [newFaq, setNewFaq] = useState<Partial<FAQ>>({
     question: '', answer: '', category: 'General'
   });
+  const [editingFaq, setEditingFaq] = useState<FAQ | null>(null);
+  const [viewingFaq, setViewingFaq] = useState<FAQ | null>(null);
 
   const [settingsTab, setSettingsTab] = useState<'profile' | 'hours' | 'password'>('profile');
   const [oldPassword, setOldPassword] = useState('');
@@ -97,6 +99,21 @@ export default function Dashboard({
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target as Node)) {
+        setShowProfileDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Schedule / Calendar state
   const [selectedCalendarDate, setSelectedCalendarDate] = useState('2026-05-16');
@@ -532,21 +549,71 @@ export default function Dashboard({
     });
   };
 
-  // Create FAQ
-  const handleCreateFaq = (e: React.FormEvent) => {
+  // Create or Update FAQ in Supabase
+  const handleSaveFaq = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFaq.question || !newFaq.answer) return;
 
-    const formattedFaq: FAQ = {
-      id: `faq-${Date.now()}`,
-      question: newFaq.question,
-      answer: newFaq.answer,
-      category: newFaq.category || 'General'
-    };
+    try {
+      // Get logged in user details for user_id association
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user ? user.id : null;
 
-    onUpdateFAQs([...faqs, formattedFaq]);
-    setShowFaqModal(false);
-    setNewFaq({ question: '', answer: '', category: 'General' });
+      if (editingFaq) {
+        // Update in Supabase
+        const updatedFaq: FAQ = {
+          id: editingFaq.id,
+          question: newFaq.question,
+          answer: newFaq.answer,
+          category: newFaq.category || 'General'
+        };
+
+        const { error } = await supabase
+          .from('faqs')
+          .update(userId ? { ...updatedFaq, user_id: userId } : updatedFaq)
+          .eq('id', editingFaq.id);
+
+        if (error) {
+          console.error('Error updating FAQ:', error);
+        }
+
+        // Update local React state in either case
+        onUpdateFAQs(faqs.map(f => f.id === editingFaq.id ? updatedFaq : f));
+      } else {
+        // Create in Supabase
+        const formattedFaq = {
+          id: `faq-${Date.now()}`,
+          question: newFaq.question,
+          answer: newFaq.answer,
+          category: newFaq.category || 'General'
+        };
+
+        const { error } = await supabase
+          .from('faqs')
+          .insert(userId ? { ...formattedFaq, user_id: userId } : formattedFaq);
+
+        if (error) {
+          console.error('Error inserting FAQ:', error);
+        }
+
+        // Update local React state
+        onUpdateFAQs([...faqs, formattedFaq]);
+      }
+    } catch (err) {
+      console.error('Exception saving FAQ:', err);
+      // Fallback update React state if any issue
+      if (editingFaq) {
+        const updatedFaq = { id: editingFaq.id, question: newFaq.question!, answer: newFaq.answer!, category: newFaq.category || 'General' };
+        onUpdateFAQs(faqs.map(f => f.id === editingFaq.id ? updatedFaq : f));
+      } else {
+        const formattedFaq = { id: `faq-${Date.now()}`, question: newFaq.question!, answer: newFaq.answer!, category: newFaq.category || 'General' };
+        onUpdateFAQs([...faqs, formattedFaq]);
+      }
+    } finally {
+      setShowFaqModal(false);
+      setEditingFaq(null);
+      setNewFaq({ question: '', answer: '', category: 'General' });
+    }
   };
 
   // Delete handlers
@@ -565,8 +632,21 @@ export default function Dashboard({
     onUpdateServices(services.filter(s => s.id !== id));
   };
 
-  const deleteFaq = (id: string) => {
-    onUpdateFAQs(faqs.filter(f => f.id !== id));
+  const deleteFaq = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('faqs')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error deleting FAQ from Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Exception deleting FAQ:', err);
+    } finally {
+      onUpdateFAQs(faqs.filter(f => f.id !== id));
+    }
   };
 
   // Filter lists
@@ -891,9 +971,75 @@ export default function Dashboard({
               ⚡ Live Cloud Simulator Persistence
             </div>
             
-            {/* User Profile avatar */}
-            <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-br from-[#3B82F6]/20 to-[#8B5CF6]/10 text-[#3B82F6] flex items-center justify-center font-extrabold text-xs border border-[#3B82F6]/30 shadow-md shadow-[#3B82F6]/5 uppercase">
-              {profile.name ? profile.name.substring(0, 2).toUpperCase() : "VD"}
+            {/* User Profile avatar with Dropdown */}
+            <div className="relative" ref={profileDropdownRef}>
+              <button 
+                onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                className="w-8.5 h-8.5 rounded-xl bg-gradient-to-br from-[#3B82F6]/20 to-[#8B5CF6]/10 text-[#3B82F6] hover:text-[#3B82F6]/80 flex items-center justify-center font-extrabold text-xs border border-[#3B82F6]/30 shadow-md shadow-[#3B82F6]/5 uppercase cursor-pointer select-none transition-all duration-150 focus:outline-none"
+              >
+                {profile.name ? profile.name.substring(0, 2).toUpperCase() : "VD"}
+              </button>
+
+              {showProfileDropdown && (
+                <div className="absolute right-0 mt-2.5 w-56 bg-[#0B1120] border border-[#1F2937] rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* Header info */}
+                  <div className="px-4 py-2 border-b border-[#1F2937] mb-1">
+                    <p className="text-xs font-bold text-white truncate">{profile.name || "Clinic Admin"}</p>
+                    <p className="text-[10px] text-[#617496] truncate mt-0.5">{profile.email || "admin@voice.ai"}</p>
+                  </div>
+
+                  {/* Dropdown Options */}
+                  <button
+                    onClick={() => {
+                      setSettingsTab('profile');
+                      navigate('/settings');
+                      setShowProfileDropdown(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-xs text-[#94A3B8] hover:text-white hover:bg-[#121E36] transition-all flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <User className="w-3.5 h-3.5 text-[#3B82F6]" />
+                    <span>Business Profile</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSettingsTab('password');
+                      navigate('/settings');
+                      setShowProfileDropdown(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-xs text-[#94A3B8] hover:text-white hover:bg-[#121E36] transition-all flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5 text-[#8B5CF6]" />
+                    <span>Change Password</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSettingsTab('hours');
+                      navigate('/settings');
+                      setShowProfileDropdown(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-xs text-[#94A3B8] hover:text-white hover:bg-[#121E36] transition-all flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-[#10B981]" />
+                    <span>Business Hours</span>
+                  </button>
+
+                  {/* Divider */}
+                  <div className="border-t border-[#1F2937] my-1"></div>
+
+                  <button
+                    onClick={() => {
+                      setShowProfileDropdown(false);
+                      onSignOut();
+                    }}
+                    className="w-full text-left px-4 py-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/15 transition-all flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -2511,15 +2657,56 @@ export default function Dashboard({
                         </span>
                         <span>{faq.question}</span>
                       </div>
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2.5">
+                        {/* View Button */}
+                        <motion.button 
+                          whileHover={{ scale: 1.1, color: "#3B82F6" }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setViewingFaq(faq);
+                          }}
+                          className="text-[#94A3B8] hover:text-[#3B82F6] p-1.5 rounded-lg hover:bg-[#111827] transition-colors pointer-events-auto"
+                          title="View FAQ Details"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </motion.button>
+
+                        {/* Edit Button */}
+                        <motion.button 
+                          whileHover={{ scale: 1.1, color: "#10B981" }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setEditingFaq(faq);
+                            setNewFaq({
+                              question: faq.question,
+                              answer: faq.answer,
+                              category: faq.category
+                            });
+                            setShowFaqModal(true);
+                          }}
+                          className="text-[#94A3B8] hover:text-[#10B981] p-1.5 rounded-lg hover:bg-[#111827] transition-colors pointer-events-auto"
+                          title="Edit FAQ"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </motion.button>
+
+                        {/* Delete Button */}
                         <motion.button 
                           whileHover={{ scale: 1.1, color: "#f87171" }}
                           whileTap={{ scale: 0.9 }}
                           onClick={(e) => {
                             e.preventDefault();
-                            deleteFaq(faq.id);
+                            e.stopPropagation();
+                            if (confirm("Are you sure you want to delete this FAQ?")) {
+                              deleteFaq(faq.id);
+                            }
                           }}
                           className="text-[#94A3B8] hover:text-red-400 p-1.5 rounded-lg hover:bg-[#111827] transition-colors pointer-events-auto"
+                          title="Delete FAQ"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </motion.button>
@@ -4137,19 +4324,26 @@ export default function Dashboard({
         </div>
       )}
 
-      {/* ADD FAQ MODAL */}
+      {/* ADD / EDIT FAQ MODAL */}
       {showFaqModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-xl shadow-2xl relative overflow-hidden animate-zoomIn">
             
             <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
-              <h3 className="text-white font-extrabold text-sm">Add FAQ</h3>
-              <button onClick={() => setShowFaqModal(false)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+              <h3 className="text-white font-extrabold text-sm">{editingFaq ? 'Edit FAQ' : 'Add FAQ'}</h3>
+              <button 
+                onClick={() => {
+                  setShowFaqModal(false);
+                  setEditingFaq(null);
+                  setNewFaq({ question: '', answer: '', category: 'General' });
+                }} 
+                className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
  
-            <form onSubmit={handleCreateFaq} className="p-6 space-y-4">
+            <form onSubmit={handleSaveFaq} className="p-6 space-y-4">
               
               <div>
                 <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Category / Topic Tag *</label>
@@ -4190,7 +4384,11 @@ export default function Dashboard({
               <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end gap-3">
                 <button 
                   type="button" 
-                  onClick={() => setShowFaqModal(false)}
+                  onClick={() => {
+                    setShowFaqModal(false);
+                    setEditingFaq(null);
+                    setNewFaq({ question: '', answer: '', category: 'General' });
+                  }}
                   className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
                 >
                   Cancel
@@ -4199,11 +4397,53 @@ export default function Dashboard({
                   type="submit" 
                   className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
                 >
-                  Add FAQ
+                  {editingFaq ? 'Save Changes' : 'Add FAQ'}
                 </button>
               </div>
  
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW FAQ DETAILS MODAL */}
+      {viewingFaq && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-xl shadow-2xl relative overflow-hidden animate-zoomIn">
+            
+            <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="bg-[#111827] text-[9px] font-bold font-mono text-[#3B82F6] px-2 py-0.5 rounded border border-[#1F2937] uppercase tracking-wider">
+                  {viewingFaq.category}
+                </span>
+                <h3 className="text-white font-extrabold text-sm">FAQ Details</h3>
+              </div>
+              <button onClick={() => setViewingFaq(null)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="space-y-2">
+                <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Question</h4>
+                <p className="text-sm font-bold text-white leading-relaxed">{viewingFaq.question}</p>
+              </div>
+
+              <div className="space-y-2 border-t border-[#1F2937]/50 pt-4">
+                <h4 className="text-[10px] text-[#617496] uppercase font-mono font-bold tracking-wider">Answer</h4>
+                <p className="text-xs text-[#94A3B8] leading-relaxed whitespace-pre-wrap">{viewingFaq.answer}</p>
+              </div>
+              
+              <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end">
+                <button 
+                  type="button" 
+                  onClick={() => setViewingFaq(null)}
+                  className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-5 py-2.5 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

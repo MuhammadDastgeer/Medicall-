@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { BusinessProfile, BusinessHours } from '../types';
+import { INITIAL_FAQS } from '../data';
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
@@ -300,6 +301,12 @@ class LocalStorageSupabaseMock {
     const currentUser = this.getLoggedInUser();
     const userId = currentUser ? currentUser.id : 'anonymous';
 
+    const getFaqs = () => {
+      const saved = localStorage.getItem(`supabase_mock_faqs_${userId}`);
+      if (saved) return JSON.parse(saved);
+      return INITIAL_FAQS;
+    };
+
     return {
       select: (fields: string = '*') => {
         return {
@@ -343,8 +350,49 @@ class LocalStorageSupabaseMock {
                   return { data: currentHours, error: null };
                 }
                 return { data: null, error: { message: `Table ${tableName} not supported in mock.` } };
+              },
+              then: async (onfulfilled?: any) => {
+                await new Promise(r => setTimeout(r, 100));
+                if (tableName === 'faqs') {
+                  let data = getFaqs();
+                  if (field !== 'user_id') {
+                    data = data.filter((f: any) => f[field] === val);
+                  }
+                  return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+                }
+                return onfulfilled ? onfulfilled({ data: null, error: { message: `Not supported` } }) : { data: null, error: { message: `Not supported` } };
               }
             };
+          },
+          then: async (onfulfilled?: any) => {
+            await new Promise(r => setTimeout(r, 100));
+            if (tableName === 'faqs') {
+              const data = getFaqs();
+              return onfulfilled ? onfulfilled({ data, error: null }) : { data, error: null };
+            }
+            return onfulfilled ? onfulfilled({ data: null, error: { message: `Not supported` } }) : { data: null, error: { message: `Not supported` } };
+          }
+        };
+      },
+
+      insert: (newData: any) => {
+        return {
+          then: async (onfulfilled?: any) => {
+            await new Promise(r => setTimeout(r, 150));
+            if (tableName === 'faqs') {
+              const list = getFaqs();
+              const itemsToInsert = Array.isArray(newData) ? newData : [newData];
+              const processed = itemsToInsert.map(item => ({
+                id: item.id || `faq-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                question: item.question,
+                answer: item.answer,
+                category: item.category
+              }));
+              const updatedList = [...list, ...processed];
+              localStorage.setItem(`supabase_mock_faqs_${userId}`, JSON.stringify(updatedList));
+              return onfulfilled ? onfulfilled({ data: processed, error: null }) : { data: processed, error: null };
+            }
+            return onfulfilled ? onfulfilled({ data: null, error: { message: 'Table not supported in mock' } }) : { data: null, error: { message: 'Table not supported in mock' } };
           }
         };
       },
@@ -373,6 +421,44 @@ class LocalStorageSupabaseMock {
                     return { data: null, error: { message: 'Table not supported' } };
                   }
                 };
+              },
+              then: async (onfulfilled?: any) => {
+                await new Promise(r => setTimeout(r, 150));
+                if (tableName === 'faqs') {
+                  const list = getFaqs();
+                  let updatedItem = null;
+                  const updatedList = list.map((item: any) => {
+                    if (item[field] === val) {
+                      updatedItem = { ...item, ...updatedData };
+                      // Clean up internal DB fields if any
+                      delete (updatedItem as any).user_id;
+                      return updatedItem;
+                    }
+                    return item;
+                  });
+                  localStorage.setItem(`supabase_mock_faqs_${userId}`, JSON.stringify(updatedList));
+                  return onfulfilled ? onfulfilled({ data: updatedItem, error: null }) : { data: updatedItem, error: null };
+                }
+                return onfulfilled ? onfulfilled({ data: null, error: { message: 'Not supported' } }) : { data: null, error: { message: 'Not supported' } };
+              }
+            };
+          }
+        };
+      },
+
+      delete: () => {
+        return {
+          eq: (field: string, val: any) => {
+            return {
+              then: async (onfulfilled?: any) => {
+                await new Promise(r => setTimeout(r, 150));
+                if (tableName === 'faqs') {
+                  const list = getFaqs();
+                  const filtered = list.filter((item: any) => item[field] !== val);
+                  localStorage.setItem(`supabase_mock_faqs_${userId}`, JSON.stringify(filtered));
+                  return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
+                }
+                return onfulfilled ? onfulfilled({ data: null, error: { message: 'Not supported' } }) : { data: null, error: { message: 'Not supported' } };
               }
             };
           }

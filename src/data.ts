@@ -65,38 +65,7 @@ export const INITIAL_AGENTS: AIAgent[] = [
   }
 ];
 
-export const INITIAL_FAQS: FAQ[] = [
-  {
-    id: 'faq-1',
-    question: 'Oil Change requirements',
-    answer: 'We recommend checking your vehicle handbook, but generally synthetic oils require replacement every 7,500 - 10,000 miles. Standard oil changes should be scheduled every 3,000 - 5,000 miles.',
-    category: 'Oil',
-  },
-  {
-    id: 'faq-2',
-    question: 'What are your business hours?',
-    answer: 'We are open Monday to Friday from 8:00 AM to 6:00 PM, and Saturday from 9:00 AM to 2:00 PM. We are closed on Sundays.',
-    category: 'Business Hours',
-  },
-  {
-    id: 'faq-3',
-    question: 'Do I need an appointment for car service?',
-    answer: 'While we do accommodate walk-ins, we highly recommend booking an appointment to minimize your wait time. You can book an appointment with our AI receptionist in under 2 minutes.',
-    category: 'Appointments',
-  },
-  {
-    id: 'faq-4',
-    question: 'How long does an oil change take?',
-    answer: 'A standard synthetic oil change and multi-point vehicle inspection takes approximately 45 to 60 minutes.',
-    category: 'Services',
-  },
-  {
-    id: 'faq-5',
-    question: 'Do you provide engine diagnostics?',
-    answer: 'Yes! We use state-of-the-art OBD-II diagnostic systems to read engine codes and perform rigorous system inspections to detect any issues.',
-    category: 'Diagnostics',
-  }
-];
+export const INITIAL_FAQS: FAQ[] = [];
 
 export const INITIAL_APPOINTMENTS: Appointment[] = [
   {
