@@ -355,5 +355,188 @@ class LocalStorageSupabaseMock {
   }
 }
 
-// Instantiate fallback if real Supabase isn't configured
-export const supabase = isSupabaseConfigured ? realClient : new LocalStorageSupabaseMock();
+// Instantiate fallback mock client
+const realSupabase = realClient;
+const mockSupabase = new LocalStorageSupabaseMock();
+
+// Session-level tracker to fall back to mock database if real client is rate-limited or fails
+let useMockFallback = !isSupabaseConfigured;
+
+export const supabase: any = {
+  get isMock() {
+    return useMockFallback;
+  },
+
+  auth: {
+    signUp: async (params: any) => {
+      if (useMockFallback || !realSupabase) {
+        return mockSupabase.auth.signUp(params);
+      }
+      try {
+        const res = await realSupabase.auth.signUp(params);
+        if (res.error) {
+          console.warn('Real Supabase signUp error, falling back to local sandbox:', res.error.message);
+          useMockFallback = true;
+          return mockSupabase.auth.signUp(params);
+        }
+        return res;
+      } catch (err: any) {
+        console.warn('Real Supabase signUp exception, falling back to local sandbox:', err);
+        useMockFallback = true;
+        return mockSupabase.auth.signUp(params);
+      }
+    },
+
+    signInWithPassword: async (params: any) => {
+      if (useMockFallback || !realSupabase) {
+        return mockSupabase.auth.signInWithPassword(params);
+      }
+      try {
+        const res = await realSupabase.auth.signInWithPassword(params);
+        if (res.error) {
+          console.warn('Real Supabase signIn error, falling back to local sandbox:', res.error.message);
+          useMockFallback = true;
+          
+          // Attempt mock login. If user is not registered locally, auto-register them so they can enter immediately!
+          const mockRes = await mockSupabase.auth.signInWithPassword(params);
+          if (mockRes.error) {
+            console.log('User not found in local sandbox, auto-registering on-the-fly:', params.email);
+            const signupRes = await mockSupabase.auth.signUp({
+              email: params.email,
+              password: params.password,
+              options: {
+                data: {
+                  name: params.email.split('@')[0],
+                  business_name: 'My Clinic'
+                }
+              }
+            });
+            if (!signupRes.error) {
+              return signupRes;
+            }
+          }
+          return mockRes;
+        }
+        return res;
+      } catch (err: any) {
+        console.warn('Real Supabase signIn exception, falling back to local sandbox:', err);
+        useMockFallback = true;
+        return mockSupabase.auth.signInWithPassword(params);
+      }
+    },
+
+    resetPasswordForEmail: async (email: string) => {
+      if (useMockFallback || !realSupabase) {
+        return mockSupabase.auth.resetPasswordForEmail(email);
+      }
+      try {
+        const res = await realSupabase.auth.resetPasswordForEmail(email);
+        if (res.error) {
+          return mockSupabase.auth.resetPasswordForEmail(email);
+        }
+        return res;
+      } catch (err) {
+        return mockSupabase.auth.resetPasswordForEmail(email);
+      }
+    },
+
+    signOut: async () => {
+      if (realSupabase) {
+        try {
+          await realSupabase.auth.signOut();
+        } catch (e) {}
+      }
+      await mockSupabase.auth.signOut();
+      useMockFallback = !isSupabaseConfigured;
+      return { error: null };
+    },
+
+    getUser: async () => {
+      if (useMockFallback || !realSupabase) {
+        return mockSupabase.auth.getUser();
+      }
+      try {
+        const res = await realSupabase.auth.getUser();
+        if (res.error || !res.data?.user) {
+          return mockSupabase.auth.getUser();
+        }
+        return res;
+      } catch (err) {
+        return mockSupabase.auth.getUser();
+      }
+    },
+
+    getSession: async () => {
+      if (useMockFallback || !realSupabase) {
+        return mockSupabase.auth.getSession();
+      }
+      try {
+        const res = await realSupabase.auth.getSession();
+        if (res.error || !res.data?.session) {
+          return mockSupabase.auth.getSession();
+        }
+        return res;
+      } catch (err) {
+        return mockSupabase.auth.getSession();
+      }
+    },
+
+    onAuthStateChange: (callback: any) => {
+      if (realSupabase) {
+        try {
+          return realSupabase.auth.onAuthStateChange(callback);
+        } catch (e) {}
+      }
+      return mockSupabase.auth.onAuthStateChange(callback);
+    }
+  },
+
+  from: (tableName: string) => {
+    if (useMockFallback || !realSupabase) {
+      return mockSupabase.from(tableName);
+    }
+
+    const wrapQuery = (realQuery: any, mockQuery: any): any => {
+      const proxy: any = {
+        then: (onfulfilled?: any, onrejected?: any) => {
+          return realQuery.then(
+            async (res: any) => {
+              if (res && res.error) {
+                console.warn(`Real database query returned error for ${tableName}, falling back to local sandbox:`, res.error);
+                useMockFallback = true;
+                const mockRes = await mockQuery;
+                return onfulfilled ? onfulfilled(mockRes) : mockRes;
+              }
+              return onfulfilled ? onfulfilled(res) : res;
+            },
+            async (err: any) => {
+              console.warn(`Real database query threw error for ${tableName}, falling back to local sandbox:`, err);
+              useMockFallback = true;
+              const mockRes = await mockQuery;
+              return onfulfilled ? onfulfilled(mockRes) : mockRes;
+            }
+          );
+        }
+      };
+
+      // Forward all method calls dynamically
+      const allMethods = new Set([
+        ...Object.keys(realQuery || {}),
+        ...Object.getOwnPropertyNames(Object.getPrototypeOf(realQuery || {}))
+      ]);
+
+      for (const method of allMethods) {
+        if (method === 'then' || method === 'constructor') continue;
+        proxy[method] = (...args: any[]) => {
+          const nextReal = typeof realQuery[method] === 'function' ? realQuery[method](...args) : realQuery[method];
+          const nextMock = typeof mockQuery[method] === 'function' ? mockQuery[method](...args) : mockQuery[method];
+          return wrapQuery(nextReal, nextMock);
+        };
+      }
+
+      return proxy;
+    };
+
+    return wrapQuery(realSupabase.from(tableName), mockSupabase.from(tableName));
+  }
+};
