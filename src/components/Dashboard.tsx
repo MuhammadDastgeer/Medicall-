@@ -1,19 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   BarChart3, Calendar, MessageSquare, Settings, Users, FolderKanban, 
   HelpCircle, Code, LogOut, ChevronRight, ChevronLeft, Plus, Search, Filter, 
   TrendingUp, Play, Edit, Trash2, CheckCircle2, Clock, MapPin, 
   Mail, Phone, RefreshCw, Star, Info, ShieldAlert, Sparkles, X, ChevronDown, Check,
-  Sliders, Eye, Activity, Heart, CalendarDays, Headphones, Globe, CreditCard, Bell, Shield, ArrowRight, Share2, DollarSign,
+  Sliders, Eye, EyeOff, Lock, Activity, Heart, CalendarDays, Headphones, Globe, CreditCard, Bell, Shield, ArrowRight, Share2, DollarSign,
   LayoutGrid, Bot, ClipboardList
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Appointment, Conversation, AIAgent, Service, FAQ, WidgetConfig, BusinessProfile, BusinessHours } from '../types';
 import DialerSim from './DialerSim';
+import { supabase } from '../lib/supabaseClient';
 
 interface DashboardProps {
-  activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'support' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'billing' | 'notifications' | 'settings';
+  activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'support' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'notifications' | 'settings';
   appointments: Appointment[];
   conversations: Conversation[];
   agents: AIAgent[];
@@ -87,7 +88,15 @@ export default function Dashboard({
     question: '', answer: '', category: 'General'
   });
 
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'hours'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'hours' | 'password'>('profile');
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<{ type: 'success' | 'error' | ''; message: string }>({ type: '', message: '' });
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Schedule / Calendar state
   const [selectedCalendarDate, setSelectedCalendarDate] = useState('2026-05-16');
@@ -128,16 +137,235 @@ export default function Dashboard({
   const [billingPlan, setBillingPlan] = useState('Pro Business Tier');
 
   // Notifications state
-  const [notificationsHistory, setNotificationsHistory] = useState([
-    { id: 'n1', title: 'AI Call Completed', body: 'AI receptionist successfully handled call with Sarah Jenkins. Appointment scheduled.', time: '5 mins ago', read: false, type: 'call' },
-    { id: 'n2', title: 'Appointment Booked', body: 'Sarah Jenkins booked Oil Change on Saturday, May 16 at 09:00 AM.', time: '8 mins ago', read: false, type: 'calendar' },
-    { id: 'n3', title: 'Inbound Line Active', body: 'New clinical inbound number +1 (800) 555-0192 is now active.', time: '1 hour ago', read: true, type: 'system' },
-    { id: 'n4', title: 'Knowledge Updated', body: 'FAQ question "Do you accept digital medical insurance?" updated.', time: '1 day ago', read: true, type: 'setup' }
-  ]);
+  const [notificationsHistory, setNotificationsHistory] = useState<any[]>(() => {
+    const saved = localStorage.getItem('vd_notifications_history');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [notifEmailAlert, setNotifEmailAlert] = useState(true);
   const [notifSmsAlert, setNotifSmsAlert] = useState(true);
   const [notifSlackAlert, setNotifSlackAlert] = useState(false);
   const [notifWeeklyReport, setNotifWeeklyReport] = useState(true);
+
+  // Sync to localStorage
+  useEffect(() => {
+    localStorage.setItem('vd_notifications_history', JSON.stringify(notificationsHistory));
+  }, [notificationsHistory]);
+
+  // Mark as read when notifications tab is active
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      setNotificationsHistory(prev => {
+        if (prev.some(n => !n.read)) {
+          return prev.map(n => ({ ...n, read: true }));
+        }
+        return prev;
+      });
+    }
+  }, [activeTab]);
+
+  // Track changes dynamically to generate notifications
+  const isFirstRender = useRef(true);
+  const prevAppointments = useRef<Appointment[]>([]);
+  const prevConversations = useRef<Conversation[]>([]);
+  const prevAgents = useRef<AIAgent[]>([]);
+  const prevServices = useRef<Service[]>([]);
+  const prevFaqs = useRef<FAQ[]>([]);
+  const prevWidgets = useRef<WidgetConfig[]>([]);
+  const prevProfile = useRef<BusinessProfile | null>(null);
+  const prevHours = useRef<BusinessHours | null>(null);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      prevAppointments.current = appointments;
+      prevConversations.current = conversations;
+      prevAgents.current = agents;
+      prevServices.current = services;
+      prevFaqs.current = faqs;
+      prevWidgets.current = widgets;
+      prevProfile.current = profile;
+      prevHours.current = hours;
+      isFirstRender.current = false;
+      return;
+    }
+
+    const newNotifications: any[] = [];
+    const nowStr = 'Just now';
+
+    const addNotif = (title: string, body: string, type: string) => {
+      newNotifications.push({
+        id: `n-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        title,
+        body,
+        time: nowStr,
+        read: activeTab === 'notifications',
+        type
+      });
+    };
+
+    // Appointments changes
+    if (appointments !== prevAppointments.current) {
+      if (appointments.length > prevAppointments.current.length) {
+        const added = appointments.filter(a => !prevAppointments.current.some(pa => pa.id === a.id));
+        added.forEach(a => {
+          const sName = services.find(s => s.id === a.serviceId)?.name || 'clinical service';
+          addNotif(
+            'Appointment Booked',
+            `${a.customerName} booked ${sName} on ${a.scheduledAt || 'N/A'}.`,
+            'calendar'
+          );
+        });
+      } else if (appointments.length === prevAppointments.current.length) {
+        appointments.forEach(a => {
+          const prev = prevAppointments.current.find(pa => pa.id === a.id);
+          if (prev && JSON.stringify(prev) !== JSON.stringify(a)) {
+            addNotif(
+              'Appointment Updated',
+              `Appointment for ${a.customerName} was updated (Status: ${a.status}).`,
+              'calendar'
+            );
+          }
+        });
+      }
+      prevAppointments.current = appointments;
+    }
+
+    // Conversations changes
+    if (conversations !== prevConversations.current) {
+      if (conversations.length > prevConversations.current.length) {
+        const added = conversations.filter(c => !prevConversations.current.some(pc => pc.id === c.id));
+        added.forEach(c => {
+          addNotif(
+            'New AI Call Completed',
+            `AI receptionist handled call with ${c.callerName || 'Unknown'} (${c.callerPhone || 'N/A'}). Duration: ${c.duration}.`,
+            'call'
+          );
+        });
+      }
+      prevConversations.current = conversations;
+    }
+
+    // Agents changes
+    if (agents !== prevAgents.current) {
+      if (agents.length > prevAgents.current.length) {
+        const added = agents.filter(a => !prevAgents.current.some(pa => pa.id === a.id));
+        added.forEach(a => {
+          addNotif(
+            'AI Agent Created',
+            `New AI Agent "${a.name}" has been successfully configured and deployed.`,
+            'setup'
+          );
+        });
+      } else if (agents.length === prevAgents.current.length) {
+        agents.forEach(a => {
+          const prev = prevAgents.current.find(pa => pa.id === a.id);
+          if (prev && JSON.stringify(prev) !== JSON.stringify(a)) {
+            addNotif(
+              'AI Agent Modified',
+              `AI Agent "${a.name}" configuration has been updated.`,
+              'setup'
+            );
+          }
+        });
+      }
+      prevAgents.current = agents;
+    }
+
+    // Services changes
+    if (services !== prevServices.current) {
+      if (services.length > prevServices.current.length) {
+        const added = services.filter(s => !prevServices.current.some(ps => ps.id === s.id));
+        added.forEach(s => {
+          addNotif(
+            'Service Created',
+            `New clinical service "${s.name}" added at ${s.price || 'free'}.`,
+            'setup'
+          );
+        });
+      } else if (services.length === prevServices.current.length) {
+        services.forEach(s => {
+          const prev = prevServices.current.find(ps => ps.id === s.id);
+          if (prev && JSON.stringify(prev) !== JSON.stringify(s)) {
+            addNotif(
+              'Service Updated',
+              `Clinical service "${s.name}" details updated.`,
+              'setup'
+            );
+          }
+        });
+      }
+      prevServices.current = services;
+    }
+
+    // FAQs changes
+    if (faqs !== prevFaqs.current) {
+      if (faqs.length > prevFaqs.current.length) {
+        const added = faqs.filter(f => !prevFaqs.current.some(pf => pf.id === f.id));
+        added.forEach(f => {
+          addNotif(
+            'FAQ Added',
+            `New FAQ question regarding "${f.question.substring(0, 40)}..." has been added.`,
+            'setup'
+          );
+        });
+      } else if (faqs.length === prevFaqs.current.length) {
+        faqs.forEach(f => {
+          const prev = prevFaqs.current.find(pf => pf.id === f.id);
+          if (prev && JSON.stringify(prev) !== JSON.stringify(f)) {
+            addNotif(
+              'FAQ Updated',
+              `FAQ answer for "${f.question.substring(0, 40)}..." has been modified.`,
+              'setup'
+            );
+          }
+        });
+      }
+      prevFaqs.current = faqs;
+    }
+
+    // Widgets changes
+    if (widgets !== prevWidgets.current) {
+      widgets.forEach(w => {
+        const prev = prevWidgets.current.find(pw => pw.id === w.id);
+        if (prev && JSON.stringify(prev) !== JSON.stringify(w)) {
+          addNotif(
+            'Widget Config Updated',
+            `Dynamic widget configuration for "${w.name}" has been modified.`,
+            'system'
+          );
+        }
+      });
+      prevWidgets.current = widgets;
+    }
+
+    // Profile changes
+    if (profile !== prevProfile.current) {
+      if (prevProfile.current && JSON.stringify(prevProfile.current) !== JSON.stringify(profile)) {
+        addNotif(
+          'Business Profile Updated',
+          `Business profile details have been successfully saved to your clinical database.`,
+          'system'
+        );
+      }
+      prevProfile.current = profile;
+    }
+
+    // Hours changes
+    if (hours !== prevHours.current) {
+      if (prevHours.current && JSON.stringify(prevHours.current) !== JSON.stringify(hours)) {
+        addNotif(
+          'Business Hours Updated',
+          `Your active clinical weekly schedule hours have been modified.`,
+          'system'
+        );
+      }
+      prevHours.current = hours;
+    }
+
+    if (newNotifications.length > 0) {
+      setNotificationsHistory(prev => [...newNotifications, ...prev]);
+    }
+
+  }, [appointments, conversations, agents, services, faqs, widgets, profile, hours, activeTab]);
 
   // Active FAQ category filter
   const [faqCategoryFilter, setFaqCategoryFilter] = useState<string>('All');
@@ -156,6 +384,77 @@ export default function Dashboard({
         [field]: value
       }
     });
+  };
+
+  // Change Password handler
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordStatus({ type: '', message: '' });
+
+    if (!oldPassword) {
+      setPasswordStatus({ type: 'error', message: 'Please enter your old password.' });
+      return;
+    }
+
+    if (!newPassword) {
+      setPasswordStatus({ type: 'error', message: 'Please enter a new password.' });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordStatus({ type: 'error', message: 'New password must be at least 6 characters.' });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordStatus({ type: 'error', message: 'New password and confirm password do not match.' });
+      return;
+    }
+
+    setPasswordLoading(true);
+
+    try {
+      // 1. Get current logged in user details
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setPasswordStatus({ type: 'error', message: 'Could not fetch current user context. Please sign in again.' });
+        setPasswordLoading(false);
+        return;
+      }
+
+      // 2. Check if old password matches by trying to log in
+      const { error: loginError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: oldPassword
+      });
+
+      if (loginError) {
+        setPasswordStatus({ type: 'error', message: 'Incorrect old password. Please try again.' });
+        setPasswordLoading(false);
+        return;
+      }
+
+      // 3. Old password matched! Let's update to new password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (updateError) {
+        setPasswordStatus({ 
+          type: 'error', 
+          message: updateError.message || 'Failed to update password. Please try again.' 
+        });
+      } else {
+        setPasswordStatus({ type: 'success', message: 'Password changed and saved successfully!' });
+        setOldPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }
+    } catch (err: any) {
+      setPasswordStatus({ type: 'error', message: err?.message || 'An unexpected error occurred.' });
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   // Create appointment
@@ -504,10 +803,9 @@ export default function Dashboard({
               {!isSidebarCollapsed && <div className="px-3 py-1 text-[9px] text-[#617496] font-black uppercase tracking-wider">Account</div>}
 
               {[
-                { tab: 'billing', label: 'Plan & Billing', icon: Sparkles, path: '/billing', isSpecial: true },
-                { tab: 'notifications', label: 'Notifications', icon: Bell, path: '/notifications', badge: 1 },
-                { tab: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
-                { tab: 'logout', label: 'Sign Out', icon: LogOut, path: '#', isLogout: true },
+                { tab: 'notifications', label: 'Notifications', icon: Bell, path: '/notifications', badge: notificationsHistory.filter((n: any) => !n.read).length || undefined, isSpecial: false },
+                { tab: 'settings', label: 'Settings', icon: Settings, path: '/settings', isSpecial: false },
+                { tab: 'logout', label: 'Sign Out', icon: LogOut, path: '#', isLogout: true, isSpecial: false },
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.tab;
@@ -2334,6 +2632,14 @@ export default function Dashboard({
                   >
                     Business Hours
                   </button>
+                  <button 
+                    onClick={() => setSettingsTab('password')}
+                    className={`pb-3 relative cursor-pointer font-extrabold tracking-tight transition-all ${
+                      settingsTab === 'password' ? 'text-[#3B82F6] border-b-2 border-[#3B82F6]' : 'text-[#94A3B8] hover:text-gray-200'
+                    }`}
+                  >
+                    Change Password
+                  </button>
                 </div>
               </div>
  
@@ -2494,6 +2800,138 @@ export default function Dashboard({
                     </motion.button>
                   </div>
  
+                </div>
+              )}
+
+              {/* PASSWORD CHANGE SUB TAB */}
+              {settingsTab === 'password' && (
+                <div className="space-y-6 max-w-xl">
+                  <div>
+                    <h3 className="text-sm font-bold text-white mb-1">Update Security Password</h3>
+                    <p className="text-xs text-[#94A3B8]">Ensure your account security by choosing a robust password of at least 6 characters.</p>
+                  </div>
+
+                  {passwordStatus.type && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`p-4 rounded-xl border flex items-start gap-3 ${
+                        passwordStatus.type === 'success' 
+                          ? 'bg-emerald-950/20 border-emerald-900/40 text-emerald-300' 
+                          : 'bg-rose-950/20 border-rose-900/40 text-rose-300'
+                      }`}
+                    >
+                      <div className="mt-0.5">
+                        {passwordStatus.type === 'success' ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                        )}
+                      </div>
+                      <div className="text-xs font-medium">
+                        {passwordStatus.message}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  <form onSubmit={handleChangePassword} className="space-y-4">
+                    {/* Old Password */}
+                    <div className="space-y-1.5 relative">
+                      <label className="text-[10px] text-[#94A3B8] uppercase font-bold font-mono tracking-wider block">
+                        Old Password *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2.5 text-[#617496]">
+                          <Lock className="w-4 h-4" />
+                        </span>
+                        <input 
+                          type={showOldPassword ? 'text' : 'password'} 
+                          value={oldPassword}
+                          onChange={(e) => setOldPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl pl-9 pr-10 py-2.5 outline-none transition-all font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowOldPassword(!showOldPassword)}
+                          className="absolute right-3 top-2.5 text-[#617496] hover:text-[#94A3B8] transition-colors"
+                        >
+                          {showOldPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* New Password */}
+                    <div className="space-y-1.5 relative">
+                      <label className="text-[10px] text-[#94A3B8] uppercase font-bold font-mono tracking-wider block">
+                        New Password *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2.5 text-[#617496]">
+                          <Lock className="w-4 h-4" />
+                        </span>
+                        <input 
+                          type={showNewPassword ? 'text' : 'password'} 
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl pl-9 pr-10 py-2.5 outline-none transition-all font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 top-2.5 text-[#617496] hover:text-[#94A3B8] transition-colors"
+                        >
+                          {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Confirm Password */}
+                    <div className="space-y-1.5 relative">
+                      <label className="text-[10px] text-[#94A3B8] uppercase font-bold font-mono tracking-wider block">
+                        Confirm New Password *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2.5 text-[#617496]">
+                          <Lock className="w-4 h-4" />
+                        </span>
+                        <input 
+                          type={showConfirmPassword ? 'text' : 'password'} 
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl pl-9 pr-10 py-2.5 outline-none transition-all font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute right-3 top-2.5 text-[#617496] hover:text-[#94A3B8] transition-colors"
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <motion.button 
+                        type="submit"
+                        disabled={passwordLoading}
+                        whileHover={{ scale: passwordLoading ? 1 : 1.03 }}
+                        whileTap={{ scale: passwordLoading ? 1 : 0.97 }}
+                        className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl cursor-pointer shadow-md shadow-[#3B82F6]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {passwordLoading ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            Updating...
+                          </>
+                        ) : (
+                          'Save Password'
+                        )}
+                      </motion.button>
+                    </div>
+                  </form>
                 </div>
               )}
  
@@ -3096,160 +3534,6 @@ export default function Dashboard({
                     <p className="text-[10px] text-[#617496] leading-relaxed">
                       Copy the custom script tag from the <b className="text-white">Widget</b> tab to inject this real-time widget into your external clinical domains instantly.
                     </p>
-                  </div>
-                </div>
-
-              </div>
-            </motion.div>
-          )}
-
-          {/* BILLING TAB */}
-          {activeTab === 'billing' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-6 space-y-6"
-            >
-              {/* Wallet Block */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-[#2563eb]/15 to-[#7c3aed]/10 border border-[#2563eb]/30 p-6 rounded-2xl shadow-lg shadow-[#2563eb]/5">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[#7c3aed] bg-[#7c3aed]/15 border border-[#7c3aed]/25 px-2 py-0.5 rounded-full font-black tracking-widest uppercase">Premium Tier</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                    <span className="text-[10px] text-[#617496] font-mono">Current Business Level</span>
-                  </div>
-                  <h3 className="text-white font-display font-black text-base tracking-tight mt-1">{profile.name || "The Blockchain Health Business Plan"}</h3>
-                  <p className="text-xs text-[#617496]">Configured under your secure organizational clinical account.</p>
-                </div>
-                <div className="flex gap-2">
-                  <div className="bg-[#0d172a] border border-[#1e293b] px-4 py-2 rounded-xl flex flex-col items-center">
-                    <span className="text-[9px] text-[#617496] font-bold">Billing Status</span>
-                    <span className="font-extrabold text-xs text-emerald-400 mt-0.5">Paid / Active</span>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setIsUpgraded(true);
-                      alert("Successfully upgraded your clinical billing setup to Unlimited Enterprise level!");
-                    }}
-                    className="bg-[#2563eb] hover:bg-[#2563eb]/90 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-lg shadow-[#2563eb]/15 transition-all cursor-pointer self-center"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-300" /> Upgrade Plan
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                
-                {/* 1. Wallet Card & Usage Meters (Left 7 cols) */}
-                <div className="lg:col-span-7 space-y-6">
-                  
-                  {/* Card mockup */}
-                  <div className="bg-gradient-to-br from-[#121e36] to-[#0d172a] border border-[#1e293b] p-6 rounded-2xl relative overflow-hidden shadow-md">
-                    <div className="absolute top-[-30%] right-[-10%] w-[35%] h-[60%] bg-[#2563eb]/20 rounded-full blur-[70px] pointer-events-none"></div>
-                    <div className="flex justify-between items-start mb-12">
-                      <div>
-                        <span className="text-[9px] text-[#617496] uppercase font-bold tracking-widest block">Active Payment Wallet</span>
-                        <span className="font-black text-sm text-white tracking-wider block mt-1">Visa Primary Card</span>
-                      </div>
-                      <span className="font-black text-xs text-[#617496] bg-[#121e36] px-3 py-1 rounded-lg border border-[#1e293b]">VISA</span>
-                    </div>
-
-                    <div className="mb-4">
-                      <span className="font-mono text-base text-white tracking-widest block font-bold">••••  ••••  ••••  8821</span>
-                    </div>
-
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <span className="text-[8px] text-[#617496] uppercase font-bold tracking-wider block">Card Holder</span>
-                        <span className="text-[10px] font-bold text-white tracking-tight block uppercase mt-0.5">{profile.name || "Blockchain Health Group"}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[8px] text-[#617496] uppercase font-bold tracking-wider block">Expires</span>
-                        <span className="text-[10px] font-mono font-bold text-white mt-0.5 block">08 / 2029</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Usage progress meters */}
-                  <div className="bg-[#121e36] border border-[#1e293b] p-6 rounded-2xl space-y-4">
-                    <span className="text-xs font-black text-white uppercase tracking-wider block border-b border-[#1e293b] pb-2 font-display">Active Month Usage Meters</span>
-                    
-                    <div className="space-y-3.5">
-                      <div>
-                        <div className="flex justify-between text-[11px] font-bold text-white mb-1.5">
-                          <span>AI Call Log Minutes</span>
-                          <span className="font-mono text-[#617496]">142 mins / 1,000 mins</span>
-                        </div>
-                        <div className="w-full bg-[#0d172a] h-2.5 rounded-full overflow-hidden border border-[#1e293b]">
-                          <div className="bg-gradient-to-r from-[#2563eb] to-[#7c3aed] h-full rounded-full" style={{ width: '14%' }}></div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-[11px] font-bold text-white mb-1.5">
-                          <span>Auto Scheduled Appointments</span>
-                          <span className="font-mono text-[#617496]">28 booked / 200 slots</span>
-                        </div>
-                        <div className="w-full bg-[#0d172a] h-2.5 rounded-full overflow-hidden border border-[#1e293b]">
-                          <div className="bg-gradient-to-r from-[#2563eb] to-[#7c3aed] h-full rounded-full" style={{ width: '14%' }}></div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-[11px] font-bold text-white mb-1.5">
-                          <span>Inbound AI Agents Mounted</span>
-                          <span className="font-mono text-[#617496]">3 active / 10 agents</span>
-                        </div>
-                        <div className="w-full bg-[#0d172a] h-2.5 rounded-full overflow-hidden border border-[#1e293b]">
-                          <div className="bg-gradient-to-r from-[#2563eb] to-[#7c3aed] h-full rounded-full" style={{ width: '30%' }}></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-
-                {/* 2. Invoices (Right 5 cols) */}
-                <div className="lg:col-span-5 bg-[#121e36] border border-[#1e293b] p-5 rounded-2xl flex flex-col justify-between">
-                  <div className="space-y-4">
-                    <span className="text-xs font-black text-white uppercase tracking-wider block border-b border-[#1e293b] pb-2 font-display">Historical Invoices</span>
-                    
-                    <div className="space-y-2.5">
-                      {[
-                        { num: 'INV-4921', date: 'May 01, 2026', amt: '$149.00', stat: 'Paid' },
-                        { num: 'INV-4809', date: 'Apr 01, 2026', amt: '$149.00', stat: 'Paid' },
-                        { num: 'INV-4701', date: 'Mar 01, 2026', amt: '$149.00', stat: 'Paid' },
-                        { num: 'INV-4521', date: 'Feb 01, 2026', amt: '$149.00', stat: 'Paid' }
-                      ].map((inv) => (
-                        <div key={inv.num} className="bg-[#0d172a]/50 border border-[#1e293b] p-3 rounded-xl flex items-center justify-between">
-                          <div>
-                            <span className="font-bold text-xs text-white block">{inv.num}</span>
-                            <span className="text-[10px] text-[#617496] block mt-0.5">{inv.date}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-mono font-black text-xs text-white block">{inv.amt}</span>
-                            <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/20 border border-emerald-900/30 px-1.5 py-0.2 rounded mt-1 inline-block">
-                              {inv.stat}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-[#1e293b] mt-4 flex gap-2">
-                    <button 
-                      onClick={() => alert("Redirecting to secured Stripe payment gateway... Please authorize custom wallet updates.")}
-                      className="flex-1 bg-[#121e36] border border-[#1e293b] hover:border-[#2563eb] text-white font-extrabold text-[11px] py-2.5 rounded-xl cursor-pointer text-center transition-all"
-                    >
-                      Change Card
-                    </button>
-                    <button 
-                      onClick={() => alert("Downloading all invoices as clinical expense statement ZIP...")}
-                      className="flex-1 bg-[#121e36] border border-[#1e293b] hover:border-[#2563eb] text-[#F8FAFC] font-extrabold text-[11px] py-2.5 rounded-xl cursor-pointer text-center transition-all"
-                    >
-                      Download PDF
-                    </button>
                   </div>
                 </div>
 

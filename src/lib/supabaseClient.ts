@@ -17,6 +17,7 @@ interface MockUser {
   email: string;
   name: string;
   businessName: string;
+  password?: string;
 }
 
 // Global variable for real client if initialized
@@ -45,33 +46,34 @@ class LocalStorageSupabaseMock {
         id: 'usr-demo',
         email: 'demo@medicall.ai',
         name: 'Dr. Balot Hussain',
-        businessName: 'MediCall Pro Clinic'
+        businessName: 'MediCall Pro Clinic',
+        password: 'password123'
       };
       users.push(demoUser);
       localStorage.setItem('supabase_mock_users', JSON.stringify(users));
 
-      // Seed default business profile and hours for the demo user
+      // Seed default business profile and hours for the demo user (completely empty as requested, name gets personal name, email gets email)
       const defaultProfile: BusinessProfile = {
-        name: 'MediCall Pro Clinic',
-        phone: '9999999999',
+        name: 'Dr. Balot Hussain',
+        phone: '',
         email: 'demo@medicall.ai',
-        address: '742 Market Street',
-        city: 'San Francisco',
-        state: 'CA',
-        zip: '94103',
-        website: 'https://www.theblockchaincoders.com/SourceCode',
-        timezone: 'New York'
+        address: '',
+        city: '',
+        state: '',
+        zip: '',
+        website: '',
+        timezone: ''
       };
       localStorage.setItem(`supabase_mock_profile_usr-demo`, JSON.stringify(defaultProfile));
 
       const defaultHours: BusinessHours = {
-        sunday: { isOpen: false, from: '09:00 AM', to: '05:00 PM' },
-        monday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        tuesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        wednesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        thursday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        friday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        saturday: { isOpen: true, from: '09:00 AM', to: '02:00 PM' },
+        sunday: { isOpen: false, from: '', to: '' },
+        monday: { isOpen: false, from: '', to: '' },
+        tuesday: { isOpen: false, from: '', to: '' },
+        wednesday: { isOpen: false, from: '', to: '' },
+        thursday: { isOpen: false, from: '', to: '' },
+        friday: { isOpen: false, from: '', to: '' },
+        saturday: { isOpen: false, from: '', to: '' },
       };
       localStorage.setItem(`supabase_mock_hours_usr-demo`, JSON.stringify(defaultHours));
     }
@@ -113,35 +115,36 @@ class LocalStorageSupabaseMock {
         id: `usr-${Math.random().toString(36).substr(2, 9)}`,
         email: email.toLowerCase(),
         name,
-        businessName
+        businessName,
+        password: password || 'password123'
       };
 
       // Register user
       users.push(newUser);
       this.saveMockUsers(users);
 
-      // Auto create a business profile and hours for this user
+      // Auto create a business profile and hours for this user (empty default, business profile name gets registered user's personal name, email gets email)
       const defaultProfile: BusinessProfile = {
-        name: businessName,
-        phone: '9999999999',
-        email: email.toLowerCase(),
-        address: '742 Market Street',
-        city: 'San Francisco',
-        state: 'CA',
-        zip: '94103',
-        website: 'https://www.theblockchaincoders.com/SourceCode',
-        timezone: 'New York'
+        name: name, // In place of business name, we use user's Name ("bussiness name ke jag name")
+        phone: '',
+        email: email.toLowerCase(), // email gets registered email
+        address: '',
+        city: '',
+        state: '',
+        zip: '',
+        website: '',
+        timezone: ''
       };
       localStorage.setItem(`supabase_mock_profile_${newUser.id}`, JSON.stringify(defaultProfile));
 
       const defaultHours: BusinessHours = {
-        sunday: { isOpen: false, from: '09:00 AM', to: '05:00 PM' },
-        monday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        tuesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        wednesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        thursday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        friday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-        saturday: { isOpen: true, from: '09:00 AM', to: '02:00 PM' },
+        sunday: { isOpen: false, from: '', to: '' },
+        monday: { isOpen: false, from: '', to: '' },
+        tuesday: { isOpen: false, from: '', to: '' },
+        wednesday: { isOpen: false, from: '', to: '' },
+        thursday: { isOpen: false, from: '', to: '' },
+        friday: { isOpen: false, from: '', to: '' },
+        saturday: { isOpen: false, from: '', to: '' },
       };
       localStorage.setItem(`supabase_mock_hours_${newUser.id}`, JSON.stringify(defaultHours));
 
@@ -171,7 +174,11 @@ class LocalStorageSupabaseMock {
         return { data: { user: null, session: null }, error: { message: 'Invalid login credentials. User not found.' } };
       }
 
-      // Allow demo user as a special shortcut
+      // Verify password if set
+      if (matched.password && matched.password !== password) {
+        return { data: { user: null, session: null }, error: { message: 'Invalid login credentials. Incorrect password.' } };
+      }
+
       this.setLoggedInUser(matched);
 
       return {
@@ -195,6 +202,47 @@ class LocalStorageSupabaseMock {
         return { error: { message: 'No registered account found with this email.' } };
       }
       return { data: {}, error: null };
+    },
+ 
+    updateUser: async (attributes: any) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const current = this.getLoggedInUser();
+      if (!current) {
+        return { data: { user: null }, error: { message: 'Not logged in.' } };
+      }
+      const users = this.getMockUsers();
+      const matchedIdx = users.findIndex(u => u.id === current.id);
+      if (matchedIdx === -1) {
+        return { data: { user: null }, error: { message: 'User not found in local sandbox.' } };
+      }
+ 
+      if (attributes.password) {
+        users[matchedIdx].password = attributes.password;
+        current.password = attributes.password;
+      }
+      if (attributes.data) {
+        if (attributes.data.name) {
+          users[matchedIdx].name = attributes.data.name;
+          current.name = attributes.data.name;
+        }
+        if (attributes.data.business_name) {
+          users[matchedIdx].businessName = attributes.data.business_name;
+          current.businessName = attributes.data.business_name;
+        }
+      }
+      this.saveMockUsers(users);
+      this.setLoggedInUser(current);
+ 
+      return {
+        data: {
+          user: {
+            id: current.id,
+            email: current.email,
+            user_metadata: { name: current.name, business_name: current.businessName }
+          }
+        },
+        error: null
+      };
     },
 
     signOut: async () => {
@@ -264,17 +312,17 @@ class LocalStorageSupabaseMock {
                   if (saved) {
                     return { data: JSON.parse(saved), error: null };
                   }
-                  // Fallback
+                  // Fallback (empty, name gets personal name, email gets email)
                   const currentObj: BusinessProfile = {
-                    name: currentUser?.businessName || 'AutoCare Pro Clinic',
-                    phone: '9999999999',
-                    email: currentUser?.email || 'theblockchaincoders@gmail.com',
-                    address: '742 Market Street',
-                    city: 'San Francisco',
-                    state: 'CA',
-                    zip: '94103',
-                    website: 'https://www.theblockchaincoders.com/SourceCode',
-                    timezone: 'New York'
+                    name: currentUser?.name || '',
+                    phone: '',
+                    email: currentUser?.email || '',
+                    address: '',
+                    city: '',
+                    state: '',
+                    zip: '',
+                    website: '',
+                    timezone: ''
                   };
                   return { data: currentObj, error: null };
                 } else if (tableName === 'business_hours') {
@@ -284,13 +332,13 @@ class LocalStorageSupabaseMock {
                   }
                   // Fallback
                   const currentHours: BusinessHours = {
-                    sunday: { isOpen: false, from: '09:00 AM', to: '05:00 PM' },
-                    monday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-                    tuesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-                    wednesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-                    thursday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-                    friday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-                    saturday: { isOpen: true, from: '09:00 AM', to: '02:00 PM' },
+                    sunday: { isOpen: false, from: '', to: '' },
+                    monday: { isOpen: false, from: '', to: '' },
+                    tuesday: { isOpen: false, from: '', to: '' },
+                    wednesday: { isOpen: false, from: '', to: '' },
+                    thursday: { isOpen: false, from: '', to: '' },
+                    friday: { isOpen: false, from: '', to: '' },
+                    saturday: { isOpen: false, from: '', to: '' },
                   };
                   return { data: currentHours, error: null };
                 }
@@ -439,6 +487,21 @@ export const supabase: any = {
         return mockSupabase.auth.resetPasswordForEmail(email);
       }
     },
+ 
+    updateUser: async (attributes: any) => {
+      if (useMockFallback || !realSupabase) {
+        return mockSupabase.auth.updateUser(attributes);
+      }
+      try {
+        const res = await realSupabase.auth.updateUser(attributes);
+        if (res.error) {
+          return mockSupabase.auth.updateUser(attributes);
+        }
+        return res;
+      } catch (err) {
+        return mockSupabase.auth.updateUser(attributes);
+      }
+    },
 
     signOut: async () => {
       if (realSupabase) {
@@ -497,44 +560,48 @@ export const supabase: any = {
     }
 
     const wrapQuery = (realQuery: any, mockQuery: any): any => {
-      const proxy: any = {
-        then: (onfulfilled?: any, onrejected?: any) => {
-          return realQuery.then(
-            async (res: any) => {
-              if (res && res.error) {
-                console.warn(`Real database query returned error for ${tableName}, falling back to local sandbox:`, res.error);
-                useMockFallback = true;
-                const mockRes = await mockQuery;
-                return onfulfilled ? onfulfilled(mockRes) : mockRes;
-              }
-              return onfulfilled ? onfulfilled(res) : res;
-            },
-            async (err: any) => {
-              console.warn(`Real database query threw error for ${tableName}, falling back to local sandbox:`, err);
-              useMockFallback = true;
-              const mockRes = await mockQuery;
-              return onfulfilled ? onfulfilled(mockRes) : mockRes;
-            }
-          );
+      return new Proxy({}, {
+        get(target, prop) {
+          if (prop === 'then') {
+            return (onfulfilled?: any, onrejected?: any) => {
+              return realQuery.then(
+                async (res: any) => {
+                  if (res && res.error) {
+                    console.warn(`Real database query returned error for ${tableName}, falling back to local sandbox:`, res.error);
+                    useMockFallback = true;
+                    const mockRes = await mockQuery;
+                    return onfulfilled ? onfulfilled(mockRes) : mockRes;
+                  }
+                  return onfulfilled ? onfulfilled(res) : res;
+                },
+                async (err: any) => {
+                  console.warn(`Real database query threw error for ${tableName}, falling back to local sandbox:`, err);
+                  useMockFallback = true;
+                  const mockRes = await mockQuery;
+                  return onfulfilled ? onfulfilled(mockRes) : mockRes;
+                }
+              );
+            };
+          }
+
+          if (prop === 'constructor' || typeof prop === 'symbol') {
+            return (realQuery as any)[prop];
+          }
+
+          const realValue = realQuery[prop];
+          const mockValue = mockQuery[prop];
+
+          if (typeof realValue === 'function') {
+            return (...args: any[]) => {
+              const nextReal = realValue.apply(realQuery, args);
+              const nextMock = typeof mockValue === 'function' ? mockValue.apply(mockQuery, args) : mockValue;
+              return wrapQuery(nextReal, nextMock);
+            };
+          }
+
+          return realValue;
         }
-      };
-
-      // Forward all method calls dynamically
-      const allMethods = new Set([
-        ...Object.keys(realQuery || {}),
-        ...Object.getOwnPropertyNames(Object.getPrototypeOf(realQuery || {}))
-      ]);
-
-      for (const method of allMethods) {
-        if (method === 'then' || method === 'constructor') continue;
-        proxy[method] = (...args: any[]) => {
-          const nextReal = typeof realQuery[method] === 'function' ? realQuery[method](...args) : realQuery[method];
-          const nextMock = typeof mockQuery[method] === 'function' ? mockQuery[method](...args) : mockQuery[method];
-          return wrapQuery(nextReal, nextMock);
-        };
-      }
-
-      return proxy;
+      });
     };
 
     return wrapQuery(realSupabase.from(tableName), mockSupabase.from(tableName));

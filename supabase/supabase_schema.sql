@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS public.business_profiles (
   state TEXT DEFAULT '',
   zip TEXT DEFAULT '',
   website TEXT DEFAULT '',
-  timezone TEXT DEFAULT 'New York',
+  timezone TEXT DEFAULT '',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -32,13 +32,13 @@ CREATE TABLE IF NOT EXISTS public.business_profiles (
 -- 3. Create Business Hours Table
 CREATE TABLE IF NOT EXISTS public.business_hours (
   id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
-  sunday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "09:00 AM", "to": "05:00 PM"}'::jsonb,
-  monday JSONB NOT NULL DEFAULT '{"isOpen": true, "from": "08:00 AM", "to": "06:00 PM"}'::jsonb,
-  tuesday JSONB NOT NULL DEFAULT '{"isOpen": true, "from": "08:00 AM", "to": "06:00 PM"}'::jsonb,
-  wednesday JSONB NOT NULL DEFAULT '{"isOpen": true, "from": "08:00 AM", "to": "06:00 PM"}'::jsonb,
-  thursday JSONB NOT NULL DEFAULT '{"isOpen": true, "from": "08:00 AM", "to": "06:00 PM"}'::jsonb,
-  friday JSONB NOT NULL DEFAULT '{"isOpen": true, "from": "08:00 AM", "to": "06:00 PM"}'::jsonb,
-  saturday JSONB NOT NULL DEFAULT '{"isOpen": true, "from": "09:00 AM", "to": "02:00 PM"}'::jsonb,
+  sunday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "", "to": ""}'::jsonb,
+  monday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "", "to": ""}'::jsonb,
+  tuesday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "", "to": ""}'::jsonb,
+  wednesday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "", "to": ""}'::jsonb,
+  thursday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "", "to": ""}'::jsonb,
+  friday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "", "to": ""}'::jsonb,
+  saturday JSONB NOT NULL DEFAULT '{"isOpen": false, "from": "", "to": ""}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -94,7 +94,7 @@ BEGIN
   INSERT INTO public.business_profiles (id, name, email)
   VALUES (
     new.id,
-    COALESCE(new.raw_user_meta_data->>'business_name', 'AutoCare Pro Clinic'),
+    COALESCE(new.raw_user_meta_data->>'name', 'New Member'),
     new.email
   )
   ON CONFLICT (id) DO NOTHING;

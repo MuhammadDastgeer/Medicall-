@@ -246,25 +246,25 @@ export const INITIAL_WIDGETS: WidgetConfig[] = [
 ];
 
 export const INITIAL_PROFILE: BusinessProfile = {
-  name: 'AutoCare Pro Garage',
-  phone: '9999999999',
-  email: 'theblockchaincoders@gmail.com',
-  address: '742 Market Street',
-  city: 'San Francisco',
-  state: 'CA',
-  zip: '94103',
-  website: 'https://www.theblockchaincoders.com/SourceCode',
-  timezone: 'New York'
+  name: '',
+  phone: '',
+  email: '',
+  address: '',
+  city: '',
+  state: '',
+  zip: '',
+  website: '',
+  timezone: ''
 };
 
 export const INITIAL_HOURS: BusinessHours = {
-  sunday: { isOpen: false, from: '09:00 AM', to: '05:00 PM' },
-  monday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-  tuesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-  wednesday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-  thursday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-  friday: { isOpen: true, from: '08:00 AM', to: '06:00 PM' },
-  saturday: { isOpen: true, from: '09:00 AM', to: '02:00 PM' },
+  sunday: { isOpen: false, from: '', to: '' },
+  monday: { isOpen: false, from: '', to: '' },
+  tuesday: { isOpen: false, from: '', to: '' },
+  wednesday: { isOpen: false, from: '', to: '' },
+  thursday: { isOpen: false, from: '', to: '' },
+  friday: { isOpen: false, from: '', to: '' },
+  saturday: { isOpen: false, from: '', to: '' },
 };
 
 export const LANDING_REVIEWS = [
