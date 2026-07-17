@@ -1,0 +1,6 @@
+{
+  "name": "MediCall",
+  "description": "An AI-powered voice receptionist platform for medical clinics that answers patient calls, schedules clinical appointments, and captures medical queries.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
