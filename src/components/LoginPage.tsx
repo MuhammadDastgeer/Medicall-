@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Key, Mail, ArrowRight, Sparkles, ArrowLeft, CheckCircle2, Heart, Activity } from 'lucide-react';
+import { Shield, Key, Mail, ArrowRight, Sparkles, ArrowLeft, CheckCircle2, Heart, Activity, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../lib/supabaseClient';
 
@@ -12,6 +12,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const navigate = useNavigate();
   const [email, setEmail] = useState('demo@medicall.ai');
   const [password, setPassword] = useState('password123');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
@@ -158,7 +159,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
               <div>
                 <label htmlFor="email" className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
-                  Email Address
+                  Email Address (Gmail, Yahoo, iCloud, Business Mail, etc.)
                 </label>
                 <div className="relative group/input">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -172,7 +173,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="doctor@medicall.ai"
+                    placeholder="doctor@gmail.com, yahoo.com, or custom business mail"
                     className="block w-full pl-11 pr-3 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
                   />
                 </div>
@@ -198,28 +199,21 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   <input
                     id="password"
                     name="password"
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="block w-full pl-11 pr-3 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
+                    className="block w-full pl-11 pr-10 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
                   />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <div className="text-xs">
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                  <button
                     type="button"
-                    onClick={handleFillDemo}
-                    className="font-semibold text-[#2563eb] hover:text-[#2563eb]/90 transition-colors cursor-pointer inline-flex items-center gap-1.5 bg-[#2563eb]/5 hover:bg-[#2563eb]/10 px-3 py-1.5 rounded-lg border border-[#2563eb]/20"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-500 hover:text-white transition-colors cursor-pointer"
                   >
-                    <Sparkles className="w-3 h-3" /> Use Demo Credentials
-                  </motion.button>
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -269,7 +263,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               ) : (
                 <div>
                   <label htmlFor="forgotEmail" className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
-                    Email Address
+                    Email Address (Gmail, Yahoo, iCloud, Business Mail, etc.)
                   </label>
                   <div className="relative group/input">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -282,7 +276,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                       required
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
-                      placeholder="doctor@medicall.ai"
+                      placeholder="doctor@gmail.com, yahoo.com, or custom business mail"
                       className="block w-full pl-11 pr-3 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
                     />
                   </div>
@@ -328,14 +322,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 Create an Account
               </Link>
             </p>
-            <div className="bg-gray-950/60 rounded-xl p-3.5 border border-gray-800/40 text-[11px] text-gray-400 leading-relaxed relative w-full">
-              <div className="absolute -top-2.5 left-4 bg-[#121e36] border border-[#2563eb]/30 text-[9px] font-bold uppercase tracking-wider text-[#2563eb] px-2 py-0.5 rounded">
-                💡 Sandbox Access
-              </div>
-              <p className="mt-1">
-                Login is fully validated on the client side. Clicking the <span className="text-[#2563eb] font-semibold cursor-pointer" onClick={handleFillDemo}>"Use Demo Credentials"</span> button or entering any test email and password will instantly unlock the main dashboard!
-              </p>
-            </div>
           </div>
         </div>
       </motion.div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Key, Mail, Building, ArrowRight, Check, Heart, Activity, User } from 'lucide-react';
+import { Shield, Key, Mail, Building, ArrowRight, Check, Heart, Activity, User, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../lib/supabaseClient';
 
@@ -15,6 +15,8 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -198,7 +200,7 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
 
               <div>
                 <label htmlFor="email" className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">
-                  Clinical Email Address
+                  Email Address (Gmail, Yahoo, iCloud, Business Mail, etc.)
                 </label>
                 <div className="relative group/input">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -212,7 +214,7 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="doctor@clinic.com"
+                    placeholder="doctor@gmail.com, yahoo.com, or custom business mail"
                     className="block w-full pl-11 pr-3 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
                   />
                 </div>
@@ -229,13 +231,20 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
                   <input
                     id="password"
                     name="password"
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Min 6 characters"
-                    className="block w-full pl-11 pr-3 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
+                    className="block w-full pl-11 pr-10 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-500 hover:text-white transition-colors cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -250,13 +259,20 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
                   <input
                     id="confirmPassword"
                     name="confirmPassword"
-                    type="password"
+                    type={showConfirmPassword ? "text" : "password"}
                     required
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repeat password"
-                    className="block w-full pl-11 pr-3 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
+                    className="block w-full pl-11 pr-10 py-2.5 bg-[#0d172a] border border-[#1e293b] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#2563eb]/60 focus:ring-1 focus:ring-[#2563eb]/20 transition-all"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-500 hover:text-white transition-colors cursor-pointer"
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
