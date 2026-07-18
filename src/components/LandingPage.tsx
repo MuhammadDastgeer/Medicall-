@@ -7,10 +7,13 @@ import {
 import { motion } from 'motion/react';
 import { LANDING_REVIEWS } from '../data';
 import DialerSim from './DialerSim';
+import FloatingChatWidget from './FloatingChatWidget';
+import { AIAgent } from '../types';
 
 interface LandingPageProps {
   onAppointmentBooked: (name: string, vehicle: string, service: string) => void;
   isLoggedIn?: boolean;
+  agents?: AIAgent[];
 }
 
 const containerVariants = {
@@ -29,7 +32,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } },
 };
 
-export default function LandingPage({ onAppointmentBooked, isLoggedIn = false }: LandingPageProps) {
+export default function LandingPage({ onAppointmentBooked, isLoggedIn = false, agents = [] }: LandingPageProps) {
   
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
@@ -762,12 +765,7 @@ export default function LandingPage({ onAppointmentBooked, isLoggedIn = false }:
       </footer>
 
       {/* Floating Receptionist Widget */}
-      <DialerSim 
-        agentName="MediCall Clinical Receptionist" 
-        agentVoice="Alloy - Neutral & Clear" 
-        isFloating={true}
-        onAppointmentBooked={onAppointmentBooked}
-      />
+      <FloatingChatWidget agents={agents} />
 
     </div>
   );

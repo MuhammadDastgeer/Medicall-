@@ -4,33 +4,13 @@ export const INITIAL_SERVICES: Service[] = [];
 
 export const INITIAL_AGENTS: AIAgent[] = [
   {
-    id: 'agt-1',
-    name: 'Dr. Balot Hussain',
+    id: 'agt-admin',
+    name: 'Admin',
     voice: 'General Medicine Expert',
-    personality: 'Compassionate, analytical, and highly professional',
+    personality: 'Professional, knowledgeable, and efficient',
     interruptionSensitivity: 'Medium',
-    greetingMessage: 'Hello! I am Dr. Balot, your General Medicine AI Assistant. I can help analyze your general health questions, explain clinical terms, and guide your symptoms safely. What would you like to discuss today?',
-    systemPrompt: 'You are Dr. Balot Hussain, an expert General Physician AI. Provide safe, empathetic, and evidence-based answers to medical questions. Always include a disclaimer that your advice is for educational and guidance purposes, and that they should consult a real clinical doctor for specific diagnostics and prescribing.',
-    isActive: true,
-  },
-  {
-    id: 'agt-2',
-    name: 'Dr. Amna Khan',
-    voice: 'Pediatric Specialist',
-    personality: 'Extremely warm, caring, gentle, and expert',
-    interruptionSensitivity: 'Medium',
-    greetingMessage: "Hello! I am Dr. Amna, your Pediatric Medicine Specialist. I'm here to support you with questions regarding children's development, infant health, nutrition, and well-being. How can I help you and your little one today?",
-    systemPrompt: "You are Dr. Amna Khan, a brilliant Pediatrician Specialist AI. Answer health, growth milestone, developmental, and pediatric nutritional questions about infants, toddlers, and children. Emphasize child safety and recommend pediatrician consultations for critical conditions.",
-    isActive: true,
-  },
-  {
-    id: 'agt-3',
-    name: 'Dr. Yasir Rafiq',
-    voice: 'Cardiology Consultant',
-    personality: 'Precision-driven, calm, authoritative, and educational',
-    interruptionSensitivity: 'Medium',
-    greetingMessage: 'Greetings, I am Dr. Yasir, your Cardiology AI Specialist. I can answer questions about heart health, blood pressure management, cholesterol metrics, and healthy cardiovascular habits. How may I assist you today?',
-    systemPrompt: 'You are Dr. Yasir Rafiq, a distinguished Cardiology Consultant AI. Answer cardiovascular, heart-health, dietary, and fitness questions with clear clinical reasoning. Instruct the user to seek immediate emergency medical care if they describe emergency symptoms like sudden severe chest pain, shortness of breath, or upper body numbness.',
+    greetingMessage: 'Hello! I am Admin, your AI Clinic Manager. I can help you find services, book appointments, and answer general questions about our clinic. How can I assist you today?',
+    systemPrompt: 'You are the Admin AI Clinic Manager. You are professional, knowledgeable, and direct. Help clients find our medical services, answer FAQs about clinical policies, and assist with scheduling appointments. Always remain courteous and prompt.',
     isActive: true,
   }
 ];
@@ -118,7 +98,7 @@ export const INITIAL_WIDGETS: WidgetConfig[] = [
   {
     id: 'wdg-1',
     name: 'Health Care',
-    agentId: 'agt-1',
+    agentId: 'agt-admin',
     position: 'bottom-right',
     primaryColor: '#22c55e',
     greetingMessage: 'Hello and welcome to CarBot AI. I\'m your AI assistant, here to help with appointments, support, pricing, and general questions.',
@@ -127,7 +107,7 @@ export const INITIAL_WIDGETS: WidgetConfig[] = [
   {
     id: 'wdg-2',
     name: 'Welcome',
-    agentId: 'agt-2',
+    agentId: 'agt-admin',
     position: 'bottom-left',
     primaryColor: '#22c55e',
     greetingMessage: 'Hello and welcome to CarBot AI. How can we help you?',

@@ -74,7 +74,7 @@ export default function Dashboard({
 
   // Medical Chat States
   const [medicalChatSessions, setMedicalChatSessions] = useState<{[agentId: string]: {role: 'user'|'assistant'|'system', content: string}[]}>({});
-  const [selectedMedicalAgentId, setSelectedMedicalAgentId] = useState<string>('agt-1');
+  const [selectedMedicalAgentId, setSelectedMedicalAgentId] = useState<string>('agt-admin');
   const [medicalChatInput, setMedicalChatInput] = useState('');
   const [medicalChatLoading, setMedicalChatLoading] = useState(false);
   const [medicalOpenAIKeyOverride, setMedicalOpenAIKeyOverride] = useState(() => localStorage.getItem('vd_openai_api_key_override') || '');
@@ -108,7 +108,9 @@ export default function Dashboard({
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
 
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'hours' | 'password'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'hours' | 'password' | 'danger'>('profile');
+  const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState('');
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -779,6 +781,59 @@ export default function Dashboard({
     }
   };
 
+  // Delete Account and all associated data handler
+  const handleDeleteAccount = async () => {
+    if (deleteAccountConfirmText.trim().toUpperCase() !== 'DELETE') {
+      alert("Please type 'DELETE' in the input box to confirm your action.");
+      return;
+    }
+
+    setDeleteAccountLoading(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("Unable to find user session. Please sign in again.");
+        setDeleteAccountLoading(false);
+        return;
+      }
+
+      // Delete from all database tables
+      await supabase.from('business_profiles').delete().eq('id', user.id);
+      await supabase.from('business_hours').delete().eq('id', user.id);
+      await supabase.from('faqs').delete().eq('user_id', user.id);
+      await supabase.from('services').delete().eq('user_id', user.id);
+      await supabase.from('appointments').delete().eq('user_id', user.id);
+      await supabase.from('agents').delete().eq('user_id', user.id);
+      await supabase.from('patients').delete().eq('user_id', user.id);
+
+      // If mock Supabase is active, clean up mock local storage
+      if (supabase.isMock) {
+        const mockUsersStr = localStorage.getItem('supabase_mock_users');
+        if (mockUsersStr) {
+          const mockUsers = JSON.parse(mockUsersStr);
+          const filteredUsers = mockUsers.filter((u: any) => u.id !== user.id);
+          localStorage.setItem('supabase_mock_users', JSON.stringify(filteredUsers));
+        }
+        localStorage.removeItem(`supabase_mock_profile_${user.id}`);
+        localStorage.removeItem(`supabase_mock_hours_${user.id}`);
+        localStorage.removeItem(`supabase_mock_faqs_${user.id}`);
+        localStorage.removeItem(`supabase_mock_services_${user.id}`);
+        localStorage.removeItem(`supabase_mock_appointments_${user.id}`);
+        localStorage.removeItem(`supabase_mock_patients_${user.id}`);
+        localStorage.removeItem(`supabase_mock_agents_${user.id}`);
+      }
+
+      alert("Your account and all associated data have been permanently deleted from all database tables. Logging out now.");
+      onSignOut();
+    } catch (err: any) {
+      console.error("Error during account deletion:", err);
+      alert(err?.message || "An error occurred while deleting your account. Please try again.");
+    } finally {
+      setDeleteAccountLoading(false);
+    }
+  };
+
   // Create/Edit appointment
   const handleSaveAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1115,9 +1170,13 @@ export default function Dashboard({
     } catch (err) {
       console.error('Exception deleting Agent:', err);
     } finally {
-      onUpdateAgents(agents.filter(a => a.id !== id));
+      const remaining = agents.filter(a => a.id !== id);
+      onUpdateAgents(remaining);
       if (selectedAgentForStudio?.id === id) {
-        setSelectedAgentForStudio(agents.find(a => a.id !== id) || null);
+        setSelectedAgentForStudio(remaining[0] || null);
+      }
+      if (selectedMedicalAgentId === id) {
+        setSelectedMedicalAgentId(remaining[0]?.id || '');
       }
     }
   };
@@ -3332,6 +3391,14 @@ export default function Dashboard({
                   >
                     Change Password
                   </button>
+                  <button 
+                    onClick={() => setSettingsTab('danger')}
+                    className={`pb-3 relative cursor-pointer font-extrabold tracking-tight transition-all ${
+                      settingsTab === 'danger' ? 'text-red-500 border-b-2 border-red-500' : 'text-red-400/70 hover:text-red-400'
+                    }`}
+                  >
+                    Delete Account
+                  </button>
                 </div>
               </div>
  
@@ -3624,6 +3691,68 @@ export default function Dashboard({
                       </motion.button>
                     </div>
                   </form>
+                </div>
+              )}
+
+              {/* DANGER ZONE SUB TAB */}
+              {settingsTab === 'danger' && (
+                <div className="space-y-6 max-w-xl bg-red-950/10 border border-red-900/30 p-5 rounded-2xl">
+                  <div className="flex items-start gap-3.5">
+                    <div className="p-2.5 rounded-xl bg-red-500/10 text-red-400 shrink-0 border border-red-500/20">
+                      <ShieldAlert className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-red-500 mb-1">Danger Zone: Delete Account</h3>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        This action is permanent and cannot be undone. Once deleted, all your clinic data and login sessions will be wiped clean from our databases immediately.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 bg-[#020617]/50 p-4 rounded-xl border border-red-900/10">
+                    <h4 className="text-[10px] text-red-400 uppercase font-mono font-bold tracking-wider">What will be permanently deleted:</h4>
+                    <ul className="list-disc pl-5 text-xs text-slate-400 space-y-1.5 leading-relaxed">
+                      <li>Your entire business profile details & contact info</li>
+                      <li>Your customized clinical business operational hours</li>
+                      <li>All registered clinic services and appointment fees</li>
+                      <li>All logged patients, diagnostic details, and contact lists</li>
+                      <li>All booked clinical client appointments & historic records</li>
+                      <li>All configured medical AI physicians, specialists, and agents</li>
+                      <li>All clinic support FAQs and custom-trained system prompts</li>
+                    </ul>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <label className="text-[10px] text-slate-400 uppercase font-bold font-mono tracking-wider block">
+                      To confirm, type <span className="text-red-500 font-extrabold font-sans">DELETE</span> below:
+                    </label>
+                    <input 
+                      type="text" 
+                      value={deleteAccountConfirmText}
+                      onChange={(e) => setDeleteAccountConfirmText(e.target.value)}
+                      placeholder="Type DELETE to confirm"
+                      className="w-full bg-[#020617] border border-red-900/30 focus:border-red-500 text-xs text-white rounded-xl px-4 py-3 outline-none transition-all font-mono tracking-widest uppercase placeholder:text-slate-600 focus:ring-1 focus:ring-red-500/30"
+                    />
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <motion.button 
+                      onClick={handleDeleteAccount}
+                      disabled={deleteAccountLoading || deleteAccountConfirmText.trim().toUpperCase() !== 'DELETE'}
+                      whileHover={{ scale: deleteAccountLoading ? 1 : 1.02 }}
+                      whileTap={{ scale: deleteAccountLoading ? 1 : 0.98 }}
+                      className="bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-extrabold text-xs px-5 py-3 rounded-xl cursor-pointer shadow-lg shadow-red-900/20 flex items-center gap-2 transition-all"
+                    >
+                      {deleteAccountLoading ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Deleting Everything...
+                        </>
+                      ) : (
+                        'Permanently Delete Account'
+                      )}
+                    </motion.button>
+                  </div>
                 </div>
               )}
  

@@ -33,7 +33,7 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.some((a: any) => a.name === 'Health Reception AI' || a.name === 'Welcome' || parsed.length < 3)) {
+        if (parsed.some((a: any) => a.name === 'Dr. Balot Hussain' || a.name === 'Dr. Amna Khan' || a.name === 'Dr. Yasir Rafiq' || a.name === 'Health Reception AI' || a.name === 'Welcome')) {
           return INITIAL_AGENTS;
         }
         return parsed;
@@ -173,6 +173,45 @@ export default function App() {
 
         if (appointmentsData && !appointmentsErr) {
           setAppointments(appointmentsData);
+        }
+
+        // Fetch Agents from Supabase and auto-seed Admin if empty
+        let { data: agentsData, error: agentsErr } = await supabase
+          .from('agents')
+          .select('*')
+          .eq('user_id', user.id);
+
+        if (!agentsErr) {
+          if (!agentsData || agentsData.length === 0) {
+            const adminAgent = {
+              id: 'agt-admin',
+              user_id: user.id,
+              name: 'Admin',
+              voice: 'General Medicine Expert',
+              personality: 'Professional, knowledgeable, and efficient',
+              interruptionSensitivity: 'Medium',
+              greetingMessage: 'Hello! I am Admin, your AI Clinic Manager. I can help you find services, book appointments, and answer general questions about our clinic. How can I assist you today?',
+              systemPrompt: 'You are the Admin AI Clinic Manager. You are professional, knowledgeable, and direct. Help clients find our medical services, answer FAQs about clinical policies, and assist with scheduling appointments. Always remain courteous and prompt.',
+              isActive: true,
+            };
+
+            const { error: insertErr } = await supabase
+              .from('agents')
+              .insert(adminAgent);
+
+            if (!insertErr) {
+              agentsData = [adminAgent];
+            } else {
+              console.error('Error auto-seeding Admin agent to Supabase:', insertErr);
+            }
+          }
+
+          if (agentsData && agentsData.length > 0) {
+            const formattedAgents = agentsData.map(({ user_id, ...agent }: any) => agent);
+            setAgents(formattedAgents);
+          }
+        } else {
+          console.error('Error fetching agents from Supabase:', agentsErr);
         }
       } catch (err) {
         console.error('Error fetching data from Supabase:', err);
@@ -340,7 +379,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           {/* Public Routes */}
-          <Route path="/" element={<LandingPage onAppointmentBooked={handleLandingPageBooking} isLoggedIn={isLoggedIn} />} />
+          <Route path="/" element={<LandingPage onAppointmentBooked={handleLandingPageBooking} isLoggedIn={isLoggedIn} agents={agents} />} />
           <Route path="/login" element={<PublicRoute><LoginPage onLogin={() => setIsLoggedIn(true)} /></PublicRoute>} />
           <Route path="/signup" element={<PublicRoute><SignupPage onSignup={() => setIsLoggedIn(true)} /></PublicRoute>} />
 

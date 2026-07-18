@@ -327,7 +327,17 @@ class LocalStorageSupabaseMock {
 
     const getAgents = () => {
       const saved = localStorage.getItem(`supabase_mock_agents_${userId}`);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.some((a: any) => a.name === 'Dr. Balot Hussain' || a.name === 'Dr. Amna Khan' || a.name === 'Dr. Yasir Rafiq' || a.name === 'Health Reception AI' || a.name === 'Welcome')) {
+            return INITIAL_AGENTS;
+          }
+          return parsed;
+        } catch (e) {
+          return INITIAL_AGENTS;
+        }
+      }
       return INITIAL_AGENTS;
     };
 
