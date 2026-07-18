@@ -6,7 +6,7 @@ import {
   TrendingUp, Play, Edit, Trash2, CheckCircle2, Clock, MapPin, 
   Mail, Phone, RefreshCw, Star, Info, ShieldAlert, Sparkles, X, ChevronDown, Check,
   Sliders, Eye, EyeOff, Lock, Activity, Heart, CalendarDays, Headphones, Globe, CreditCard, Bell, Shield, ArrowRight, Share2, DollarSign,
-  LayoutGrid, Bot, ClipboardList, Send, Key
+  LayoutGrid, Bot, ClipboardList, Send, Key, Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Appointment, Conversation, AIAgent, Service, FAQ, WidgetConfig, BusinessProfile, BusinessHours } from '../types';
@@ -42,6 +42,10 @@ export default function Dashboard({
 }: DashboardProps) {
   
   const navigate = useNavigate();
+  const handleNavigate = (path: string) => {
+    navigate(path);
+    setIsMobileMenuOpen(false);
+  };
   
   // Sidebar collapsed state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -76,6 +80,7 @@ export default function Dashboard({
   const [medicalOpenAIKeyOverride, setMedicalOpenAIKeyOverride] = useState(() => localStorage.getItem('vd_openai_api_key_override') || '');
   const [showKeyOverrideInput, setShowKeyOverrideInput] = useState(false);
   const [doctorSearchQuery, setDoctorSearchQuery] = useState('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Form states
   const [newApt, setNewApt] = useState<Partial<Appointment>>({
@@ -1301,12 +1306,22 @@ export default function Dashboard({
       <div className="absolute top-[-20%] left-[-10%] w-[45%] h-[40%] bg-[#2563eb]/8 rounded-full blur-[140px] pointer-events-none"></div>
       <div className="absolute bottom-[10%] right-[-10%] w-[45%] h-[45%] bg-[#7c3aed]/8 rounded-full blur-[160px] pointer-events-none"></div>
 
+      {/* MOBILE SIDEBAR BACKDROP Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-all duration-300"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       {/* SIDEBAR NAVIGATION */}
-      <aside className={`w-full bg-[#0d172a] border-r border-[#1e293b] flex flex-col justify-between shrink-0 relative z-20 shadow-2xl shadow-black/50 transition-all duration-300 ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}>
+      <aside className={`fixed inset-y-0 left-0 md:static flex flex-col justify-between shrink-0 z-50 bg-[#0d172a] border-r border-[#1e293b] shadow-2xl transition-all duration-300 transform ${
+        isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+      } md:translate-x-0 ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'} w-64`}>
         <div className="overflow-y-auto flex-1 pb-4">
           {/* Sidebar Header */}
-          <div className={`p-4 border-b border-[#1e293b] flex ${isSidebarCollapsed ? 'flex-col gap-3 items-center justify-center' : 'items-center justify-between'} bg-[#0d172a] h-[73px] transition-all duration-300`}>
-            <div className="flex items-center gap-3 group cursor-pointer overflow-hidden" onClick={() => navigate('/')}>
+          <div className={`p-4 border-b border-[#1e293b] flex ${isSidebarCollapsed ? 'md:flex-col gap-3 items-center justify-center' : 'items-center justify-between'} bg-[#0d172a] h-[73px] transition-all duration-300`}>
+            <div className="flex items-center gap-3 group cursor-pointer overflow-hidden" onClick={() => handleNavigate('/')}>
               <motion.div 
                 whileHover={{ scale: 1.05 }}
                 className="w-10 h-10 rounded-xl bg-[#121e36] border border-[#1e293b] flex items-center justify-center shadow-lg shadow-[#2563eb]/5 shrink-0 relative"
@@ -1326,13 +1341,23 @@ export default function Dashboard({
               )}
             </div>
             
-            <button 
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-1.5 rounded-lg bg-[#121e36] border border-[#1e293b] text-[#617496] hover:text-[#F8FAFC] hover:bg-[#1a2e4c] transition-colors cursor-pointer shrink-0"
-              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-            >
-              {isSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-            </button>
+            {/* Mobile close button / Desktop collapse button */}
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-1.5 rounded-lg bg-[#121e36] border border-[#1e293b] text-[#617496] hover:text-white transition-colors cursor-pointer shrink-0 md:hidden"
+                title="Close Sidebar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="p-1.5 rounded-lg bg-[#121e36] border border-[#1e293b] text-[#617496] hover:text-[#F8FAFC] hover:bg-[#1a2e4c] transition-colors cursor-pointer shrink-0 hidden md:inline-block"
+                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+              >
+                {isSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
 
           {/* Business Profile Selector */}
@@ -1387,7 +1412,7 @@ export default function Dashboard({
                 return (
                   <button 
                     key={item.tab}
-                    onClick={() => navigate(item.path)}
+                    onClick={() => handleNavigate(item.path)}
                     title={item.label}
                     className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 rounded-xl transition-all duration-200 cursor-pointer group relative ${
                       isActive 
@@ -1427,7 +1452,7 @@ export default function Dashboard({
                 return (
                   <button 
                     key={item.tab}
-                    onClick={() => navigate(item.path)}
+                    onClick={() => handleNavigate(item.path)}
                     title={item.label}
                     className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 py-2.5 rounded-xl transition-all duration-200 cursor-pointer group relative ${
                       isActive 
@@ -1478,7 +1503,7 @@ export default function Dashboard({
                       if (item.isLogout) {
                         onSignOut();
                       } else {
-                        navigate(item.path);
+                        handleNavigate(item.path);
                       }
                     }}
                     title={item.label}
@@ -1531,14 +1556,24 @@ export default function Dashboard({
       <main className="flex-1 overflow-y-auto md:h-screen flex flex-col bg-transparent relative z-10">
         
         {/* Workspace Topbar */}
-        <header className="h-16 border-b border-[#1F2937] bg-[#0B1120]/80 backdrop-blur-md px-6 flex items-center justify-between shrink-0">
-          <div>
-            <div className="flex items-center gap-1.5">
-              <h2 className="text-[#F8FAFC] font-extrabold text-sm capitalize tracking-tight">{activeTab}</h2>
-              <span className="w-1 h-1 rounded-full bg-gray-600"></span>
-              <span className="text-[10px] text-[#3B82F6] font-bold font-mono tracking-wider">VoiceDesk AI Platform v2.0</span>
+        <header className="h-16 border-b border-[#1F2937] bg-[#0B1120]/80 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            {/* Mobile Navigation Drawer Toggle */}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2 rounded-xl bg-[#121e36] border border-[#1e293b] text-[#617496] hover:text-white transition-colors cursor-pointer shrink-0 md:hidden"
+              title="Open Menu"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-[#F8FAFC] font-extrabold text-sm capitalize tracking-tight">{activeTab}</h2>
+                <span className="w-1 h-1 rounded-full bg-gray-600 hidden xs:inline-block"></span>
+                <span className="text-[10px] text-[#3B82F6] font-bold font-mono tracking-wider hidden xs:inline-block">MediCall Voice Platform v2.0</span>
+              </div>
+              <p className="text-[10px] text-[#94A3B8] font-medium truncate max-w-[150px] xs:max-w-[200px] sm:max-w-none">Workspace configuration & live voice logs</p>
             </div>
-            <p className="text-[10px] text-[#94A3B8] font-medium">Workspace configuration & live voice logs</p>
           </div>
 
           <div className="flex items-center gap-4">
@@ -2693,7 +2728,7 @@ export default function Dashboard({
                               </div>
 
                               {/* Actions on Doctor */}
-                              <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
