@@ -172,7 +172,7 @@ class LocalStorageSupabaseMock {
       const matched = users.find(u => u.email.toLowerCase() === email.toLowerCase());
 
       if (!matched) {
-        return { data: { user: null, session: null }, error: { message: 'Invalid login credentials. User not found.' } };
+        return { data: { user: null, session: null }, error: { message: 'Invalid login credentials. User not found. If you do not have an account, please sign up with a new account.' } };
       }
 
       // Verify password if set
@@ -304,19 +304,19 @@ class LocalStorageSupabaseMock {
     const getFaqs = () => {
       const saved = localStorage.getItem(`supabase_mock_faqs_${userId}`);
       if (saved) return JSON.parse(saved);
-      return INITIAL_FAQS;
+      return userId === 'usr-demo' ? INITIAL_FAQS : [];
     };
 
     const getServices = () => {
       const saved = localStorage.getItem(`supabase_mock_services_${userId}`);
       if (saved) return JSON.parse(saved);
-      return INITIAL_SERVICES;
+      return userId === 'usr-demo' ? INITIAL_SERVICES : [];
     };
 
     const getAppointments = () => {
       const saved = localStorage.getItem(`supabase_mock_appointments_${userId}`);
       if (saved) return JSON.parse(saved);
-      return INITIAL_APPOINTMENTS;
+      return userId === 'usr-demo' ? INITIAL_APPOINTMENTS : [];
     };
 
     const getPatients = () => {
@@ -330,15 +330,15 @@ class LocalStorageSupabaseMock {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (parsed.some((a: any) => a.name === 'Dr. Balot Hussain' || a.name === 'Dr. Amna Khan' || a.name === 'Dr. Yasir Rafiq' || a.name === 'Health Reception AI' || a.name === 'Welcome')) {
+          if (userId === 'usr-demo' && parsed.some((a: any) => a.name === 'Dr. Balot Hussain' || a.name === 'Dr. Amna Khan' || a.name === 'Dr. Yasir Rafiq' || a.name === 'Health Reception AI' || a.name === 'Welcome')) {
             return INITIAL_AGENTS;
           }
           return parsed;
         } catch (e) {
-          return INITIAL_AGENTS;
+          return userId === 'usr-demo' ? INITIAL_AGENTS : [];
         }
       }
-      return INITIAL_AGENTS;
+      return userId === 'usr-demo' ? INITIAL_AGENTS : [];
     };
 
     return {
@@ -745,26 +745,7 @@ export const supabase: any = {
         if (res.error) {
           console.warn('Real Supabase signIn error, falling back to local sandbox:', res.error.message);
           useMockFallback = true;
-          
-          // Attempt mock login. If user is not registered locally, auto-register them so they can enter immediately!
-          const mockRes = await mockSupabase.auth.signInWithPassword(params);
-          if (mockRes.error) {
-            console.log('User not found in local sandbox, auto-registering on-the-fly:', params.email);
-            const signupRes = await mockSupabase.auth.signUp({
-              email: params.email,
-              password: params.password,
-              options: {
-                data: {
-                  name: params.email.split('@')[0],
-                  business_name: 'My Clinic'
-                }
-              }
-            });
-            if (!signupRes.error) {
-              return signupRes;
-            }
-          }
-          return mockRes;
+          return mockSupabase.auth.signInWithPassword(params);
         }
         return res;
       } catch (err: any) {
