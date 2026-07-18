@@ -6,15 +6,15 @@ import {
   TrendingUp, Play, Edit, Trash2, CheckCircle2, Clock, MapPin, 
   Mail, Phone, RefreshCw, Star, Info, ShieldAlert, Sparkles, X, ChevronDown, Check,
   Sliders, Eye, EyeOff, Lock, Activity, Heart, CalendarDays, Headphones, Globe, CreditCard, Bell, Shield, ArrowRight, Share2, DollarSign,
-  LayoutGrid, Bot, ClipboardList
+  LayoutGrid, Bot, ClipboardList, Send, Key
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Appointment, Conversation, AIAgent, Service, FAQ, WidgetConfig, BusinessProfile, BusinessHours } from '../types';
 import DialerSim from './DialerSim';
 import { supabase } from '../lib/supabaseClient';
 
 interface DashboardProps {
-  activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'notifications' | 'settings';
+  activeTab: 'overview' | 'analytics' | 'appointments' | 'schedule' | 'patients' | 'agents' | 'services' | 'faqs' | 'notifications' | 'settings';
   appointments: Appointment[];
   conversations: Conversation[];
   agents: AIAgent[];
@@ -67,6 +67,15 @@ export default function Dashboard({
   const [studioSubTab, setStudioSubTab] = useState<'configure' | 'test'>('configure');
   const [agentSubTab, setAgentSubTab] = useState<'list' | 'studio' | 'edit'>('list');
   const [editingAgent, setEditingAgent] = useState<AIAgent | null>(null);
+
+  // Medical Chat States
+  const [medicalChatSessions, setMedicalChatSessions] = useState<{[agentId: string]: {role: 'user'|'assistant'|'system', content: string}[]}>({});
+  const [selectedMedicalAgentId, setSelectedMedicalAgentId] = useState<string>('agt-1');
+  const [medicalChatInput, setMedicalChatInput] = useState('');
+  const [medicalChatLoading, setMedicalChatLoading] = useState(false);
+  const [medicalOpenAIKeyOverride, setMedicalOpenAIKeyOverride] = useState(() => localStorage.getItem('vd_openai_api_key_override') || '');
+  const [showKeyOverrideInput, setShowKeyOverrideInput] = useState(false);
+  const [doctorSearchQuery, setDoctorSearchQuery] = useState('');
 
   // Form states
   const [newApt, setNewApt] = useState<Partial<Appointment>>({
@@ -233,6 +242,119 @@ export default function Dashboard({
       });
     }
   }, [activeTab]);
+
+  // Studio Chatbot state
+  const [studioChatHistory, setStudioChatHistory] = useState<{ sender: 'agent' | 'user'; text: string; time: string }[]>([]);
+  const [studioChatInput, setStudioChatInput] = useState('');
+  const [isStudioChatTyping, setIsStudioChatTyping] = useState(false);
+  const studioChatScrollRef = useRef<HTMLDivElement>(null);
+  const [studioBookingState, setStudioBookingState] = useState<{ step: number; service: string; vehicle: string; name: string } | null>(null);
+
+  // Auto-initialize chatbot with custom greeting when selectedAgentForStudio is selected
+  useEffect(() => {
+    if (selectedAgentForStudio) {
+      setStudioChatHistory([
+        {
+          sender: 'agent',
+          text: selectedAgentForStudio.greetingMessage || `Hello! I am ${selectedAgentForStudio.name}, your AI assistant. How can I help you today?`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+      setStudioBookingState(null);
+    }
+  }, [selectedAgentForStudio?.id, selectedAgentForStudio?.greetingMessage]);
+
+  // Scroll chatbot to bottom
+  useEffect(() => {
+    if (studioChatScrollRef.current) {
+      studioChatScrollRef.current.scrollTop = studioChatScrollRef.current.scrollHeight;
+    }
+  }, [studioChatHistory]);
+
+  const handleSendStudioChatMessageWithText = (textToSend: string) => {
+    if (!textToSend.trim() || !selectedAgentForStudio) return;
+
+    const userText = textToSend;
+    const userTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const updatedHistory = [
+      ...studioChatHistory,
+      { sender: 'user' as const, text: userText, time: userTime }
+    ];
+    setStudioChatHistory(updatedHistory);
+    setIsStudioChatTyping(true);
+
+    setTimeout(() => {
+      const textLower = userText.toLowerCase();
+      let reply = '';
+
+      if (studioBookingState) {
+        if (studioBookingState.step === 1) {
+          const vehicle = userText;
+          setStudioBookingState({ ...studioBookingState, step: 2, vehicle });
+          reply = `Got it, a ${vehicle}. And what is your full name to finalize this appointment?`;
+        } else if (studioBookingState.step === 2) {
+          const name = userText;
+          reply = `Thank you, ${name}! Your appointment is fully confirmed for this coming Saturday at 10:00 AM for the ${studioBookingState.service}. We look forward to seeing you at AutoCare Pro Garage!`;
+
+          // Call the existing appointment booking function to save in database and local states
+          handleDirectDialerBooking(name, studioBookingState.vehicle || 'Toyota Camry', studioBookingState.service || 'Oil Change');
+
+          setStudioBookingState(null);
+        }
+      } else {
+        const personality = selectedAgentForStudio.personality?.toLowerCase() || '';
+        const systemPrompt = selectedAgentForStudio.systemPrompt?.toLowerCase() || '';
+
+        let prefix = '';
+        if (personality.includes('empathetic')) {
+          prefix = "I completely understand and I'm here to help. ";
+        } else if (personality.includes('casual') || personality.includes('friendly')) {
+          prefix = "Hey there! Happy to help. ";
+        } else if (personality.includes('direct') || personality.includes('efficient')) {
+          prefix = "Understood. ";
+        }
+
+        if (textLower.includes('oil') || textLower.includes('lub') || textLower.includes('change')) {
+          setStudioBookingState({ step: 1, service: 'Oil Change', vehicle: '', name: '' });
+          reply = `${prefix}I can absolutely assist you with scheduling an Oil Change. Our premium service uses full synthetic oil and starts at $49.99. What is the year, make, and model of your vehicle?`;
+        } else if (textLower.includes('brake') || textLower.includes('squeak') || textLower.includes('noise')) {
+          setStudioBookingState({ step: 1, service: 'Brake Inspection', vehicle: '', name: '' });
+          reply = `${prefix}Brakes are crucial for safety! We can perform a comprehensive Brake Inspection starting at $39.99. What is the year, make, and model of your vehicle?`;
+        } else if (textLower.includes('hour') || textLower.includes('open') || textLower.includes('time') || textLower.includes('sunday') || textLower.includes('saturday')) {
+          reply = `${prefix}Our business hours are Monday to Friday from 8:00 AM to 6:00 PM, and Saturdays from 9:00 AM to 2:00 PM. We are closed on Sundays.`;
+        } else if (textLower.includes('price') || textLower.includes('cost') || textLower.includes('fee') || textLower.includes('how much')) {
+          reply = `${prefix}Of course. Our base prices are: Oil Change starting at $49.99, Brake Inspection at $39.99, and computer diagnostic scan at $59.99. Other services depend on the technician's custom estimate.`;
+        } else if (textLower.includes('where') || textLower.includes('location') || textLower.includes('address') || textLower.includes('directions')) {
+          reply = `${prefix}We are conveniently located at 742 Market Street, San Francisco, California 94103.`;
+        } else if (textLower.includes('hello') || textLower.includes('hi') || textLower.includes('hey')) {
+          reply = `${prefix}Hello! How can I help you with your vehicle servicing today?`;
+        } else {
+          if (systemPrompt.includes('tire') || textLower.includes('tire')) {
+            reply = `${prefix}Yes, we handle tire rotations, alignments, and new tire installations. What kind of tire service are you looking for?`;
+          } else {
+            reply = `${prefix}I've taken note of that. As your AI Receptionist, I can help you check services, schedule appointments, or answer pricing questions. What would you like to do next?`;
+          }
+        }
+      }
+
+      setStudioChatHistory(prev => [
+        ...prev,
+        {
+          sender: 'agent' as const,
+          text: reply,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+      setIsStudioChatTyping(false);
+    }, 1000);
+  };
+
+  const handleSendStudioChatMessage = () => {
+    if (!studioChatInput.trim()) return;
+    handleSendStudioChatMessageWithText(studioChatInput);
+    setStudioChatInput('');
+  };
 
 
   // Dynamic metrics helpers for Overview and Analytics tabs
@@ -725,29 +847,84 @@ export default function Dashboard({
   };
 
   // Create agent
-  const handleCreateAgent = (e: React.FormEvent) => {
+  const handleCreateAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAgent.name) return;
 
     const formattedAgent: AIAgent = {
       id: `agt-${Date.now()}`,
       name: newAgent.name,
-      voice: newAgent.voice || 'Alloy - Neutral',
-      personality: newAgent.personality || 'Professional',
+      voice: newAgent.voice || 'General Medicine Expert',
+      personality: newAgent.personality || 'Compassionate and Professional',
       interruptionSensitivity: (newAgent.interruptionSensitivity as any) || 'Medium',
-      greetingMessage: newAgent.greetingMessage || 'Hello! Thank you for calling...',
-      systemPrompt: newAgent.systemPrompt || 'You are a professional assistant...',
+      greetingMessage: newAgent.greetingMessage || 'Hello! How can I assist you today?',
+      systemPrompt: newAgent.systemPrompt || 'You are an expert medical AI...',
       isActive: true
     };
 
-    onUpdateAgents([...agents, formattedAgent]);
-    setSelectedAgentForStudio(formattedAgent);
-    setShowAgentModal(false);
-    setNewAgent({
-      name: '', voice: 'Alloy - Neutral', personality: 'Professional', interruptionSensitivity: 'Medium',
-      greetingMessage: 'Hello! Thank you for calling... How can I assist you?',
-      systemPrompt: 'You are a professional auto repair assistant...'
-    });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user ? user.id : null;
+
+      const { error } = await supabase
+        .from('agents')
+        .insert(userId ? { ...formattedAgent, user_id: userId } : formattedAgent);
+
+      if (error) {
+        console.error('Error inserting agent to Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Exception creating agent:', err);
+    } finally {
+      onUpdateAgents([...agents, formattedAgent]);
+      setSelectedAgentForStudio(formattedAgent);
+      setShowAgentModal(false);
+      setNewAgent({
+        name: '', voice: 'General Medicine Expert', personality: 'Compassionate and Professional', interruptionSensitivity: 'Medium',
+        greetingMessage: 'Hello! I am your Medical AI Assistant. How can I help you today?',
+        systemPrompt: 'You are an expert Medical AI assistant...'
+      });
+    }
+  };
+
+  const handleSaveAgentModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAgent.name) return;
+
+    if (editingAgent) {
+      const updatedAgent: AIAgent = {
+        ...editingAgent,
+        name: newAgent.name,
+        voice: newAgent.voice || 'General Medicine Specialist',
+        personality: newAgent.personality || 'Compassionate and Professional',
+        interruptionSensitivity: (newAgent.interruptionSensitivity as any) || 'Medium',
+        greetingMessage: newAgent.greetingMessage || '',
+        systemPrompt: newAgent.systemPrompt || '',
+      };
+
+      try {
+        const { error } = await supabase
+          .from('agents')
+          .update(updatedAgent)
+          .eq('id', editingAgent.id);
+        if (error) {
+          console.error('Error updating agent in Supabase:', error);
+        }
+      } catch (err) {
+        console.error('Exception updating agent:', err);
+      } finally {
+        onUpdateAgents(agents.map(a => a.id === editingAgent.id ? updatedAgent : a));
+        setShowAgentModal(false);
+        setEditingAgent(null);
+        setNewAgent({
+          name: '', voice: 'General Medicine Specialist', personality: 'Empathetic, clear, and clinical', interruptionSensitivity: 'Medium',
+          greetingMessage: 'Hello! I am your Medical AI Assistant. How can I help you today?',
+          systemPrompt: 'You are an expert Medical AI assistant...'
+        });
+      }
+    } else {
+      await handleCreateAgent(e);
+    }
   };
 
   // Create or Update service in Supabase
@@ -921,10 +1098,85 @@ export default function Dashboard({
     }
   };
 
-  const deleteAgent = (id: string) => {
-    onUpdateAgents(agents.filter(a => a.id !== id));
-    if (selectedAgentForStudio?.id === id) {
-      setSelectedAgentForStudio(agents.find(a => a.id !== id) || null);
+  const deleteAgent = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('agents')
+        .delete()
+        .eq('id', id);
+      if (error) {
+        console.error('Error deleting Agent from Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Exception deleting Agent:', err);
+    } finally {
+      onUpdateAgents(agents.filter(a => a.id !== id));
+      if (selectedAgentForStudio?.id === id) {
+        setSelectedAgentForStudio(agents.find(a => a.id !== id) || null);
+      }
+    }
+  };
+
+  const handleSendMedicalMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!medicalChatInput.trim() || medicalChatLoading) return;
+
+    const userMessage = medicalChatInput.trim();
+    setMedicalChatInput('');
+
+    // Get current session messages
+    const currentSession = medicalChatSessions[selectedMedicalAgentId] || [];
+    
+    // Find active doctor
+    const activeDoc = agents.find(a => a.id === selectedMedicalAgentId);
+    if (!activeDoc) return;
+
+    const updatedWithUser = [...currentSession, { role: 'user' as const, content: userMessage }];
+    setMedicalChatSessions(prev => ({
+      ...prev,
+      [selectedMedicalAgentId]: updatedWithUser
+    }));
+
+    setMedicalChatLoading(true);
+
+    try {
+      const apiMessages = [
+        { role: 'system', content: activeDoc.systemPrompt || "You are an expert Medical AI Assistant. Answer medical questions safely and clearly." },
+        ...updatedWithUser.map(msg => ({ role: msg.role, content: msg.content }))
+      ];
+
+      const response = await fetch('/api/medical-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messages: apiMessages,
+          apiKeyOverride: medicalOpenAIKeyOverride || undefined
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || `API Error: ${response.status}`);
+      }
+
+      const assistantMessageContent = result.choices?.[0]?.message?.content || "No reply received.";
+      
+      setMedicalChatSessions(prev => ({
+        ...prev,
+        [selectedMedicalAgentId]: [...updatedWithUser, { role: 'assistant' as const, content: assistantMessageContent }]
+      }));
+    } catch (err: any) {
+      console.error("Error in medical chat API call:", err);
+      const errorMsg = `[System Error: ${err.message || "Failed to contact OpenAI API"}]\n\nPlease verify your OpenAI API Key is configured. You can set it using the API Key Override button at the top-right of the chat dashboard.`;
+      setMedicalChatSessions(prev => ({
+        ...prev,
+        [selectedMedicalAgentId]: [...updatedWithUser, { role: 'assistant' as const, content: errorMsg }]
+      }));
+    } finally {
+      setMedicalChatLoading(false);
     }
   };
 
@@ -1126,7 +1378,6 @@ export default function Dashboard({
               {[
                 { tab: 'overview', label: 'Overview', icon: LayoutGrid, path: '/overview' },
                 { tab: 'analytics', label: 'Analytics', icon: TrendingUp, path: '/analytics' },
-                { tab: 'conversations', label: 'Call Log', icon: MessageSquare, path: '/conversations' },
                 { tab: 'appointments', label: 'Appointments', icon: Calendar, path: '/appointments' },
                 { tab: 'schedule', label: 'Schedule', icon: CalendarDays, path: '/schedule' },
                 { tab: 'patients', label: 'Patients', icon: Users, path: '/patients' },
@@ -1167,11 +1418,9 @@ export default function Dashboard({
               {!isSidebarCollapsed && <div className="px-3 py-1 text-[9px] text-[#617496] font-black uppercase tracking-wider">Setup</div>}
 
               {[
-                { tab: 'agents', label: 'AI Agents', icon: Bot, path: '/agents' },
+                { tab: 'agents', label: 'Medical AI', icon: Heart, path: '/agents' },
                 { tab: 'services', label: 'Services', icon: ClipboardList, path: '/services' },
                 { tab: 'faqs', label: 'Knowledge', icon: HelpCircle, path: '/faqs' },
-                { tab: 'widget', label: 'Widget', icon: Code, path: '/widget' },
-                { tab: 'website', label: 'Website', icon: Globe, path: '/website' },
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.tab;
@@ -1607,7 +1856,7 @@ export default function Dashboard({
                       </span>
                     </div>
                     <div className="flex justify-between pb-1">
-                      <span className="text-[#94A3B8]">Active Configured Agents</span>
+                      <span className="text-[#94A3B8]">Active AI Specialists</span>
                       <span className="text-[#3B82F6] font-mono font-extrabold text-sm">
                         {agents.filter(a => a.isActive !== false).length}
                       </span>
@@ -1856,7 +2105,7 @@ export default function Dashboard({
           )}
 
           {/* CONVERSATIONS TAB */}
-          {activeTab === 'conversations' && (
+          {(activeTab as any) === 'conversations' && (
             <motion.div 
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -2351,574 +2600,362 @@ export default function Dashboard({
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
-              
-              {/* Inner Sub Tabs or Header depending on sub-tab */}
-              {agentSubTab !== 'list' && (
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => {
-                      setAgentSubTab('list');
-                      setEditingAgent(null);
-                    }}
-                    className="text-xs text-[#3B82F6] hover:text-white font-bold flex items-center gap-1 transition-colors cursor-pointer bg-[#3B82F6]/10 px-3 py-1.5 rounded-lg border border-[#3B82F6]/25"
-                  >
-                    ← Back to Agents List
-                  </button>
-                  <span className="text-[10px] text-[#3B82F6] bg-[#3B82F6]/10 px-2.5 py-1.5 rounded border border-[#3B82F6]/25 uppercase tracking-wider font-extrabold font-mono">
-                    {agentSubTab === 'studio' ? 'Agent Studio' : 'Edit Agent'}
-                  </span>
-                </div>
-              )}
-
-              {agentSubTab === 'list' && (
-                /* FULL PAGE AGENTS LIST */
-                <motion.div 
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="bg-[#111827]/90 backdrop-blur-md border border-[#1F2937] rounded-2xl p-6 flex flex-col justify-between shadow-2xl"
-                >
-                  <div>
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-                      <div>
-                        <h4 className="text-[#F8FAFC] font-extrabold text-base tracking-tight">AI Receptionist Voice Agents</h4>
-                        <p className="text-[11px] text-[#94A3B8]">Manage presets, deploy custom behavioral parameters, and test interactive speech flows</p>
-                      </div>
-                      
-                      <motion.button 
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => setShowAgentModal(true)}
-                        className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white text-xs font-extrabold px-4 py-2.5 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-md shadow-[#3B82F6]/20 transition-all"
-                      >
-                        <Plus className="w-4 h-4 stroke-[3]" /> Add New Agent
-                      </motion.button>
-                    </div>
-
-                    {/* Agents Table List - Full Width */}
-                    <div className="overflow-x-auto rounded-xl border border-[#1F2937]">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-[#020617] text-[#94A3B8] border-b border-[#1F2937]">
-                            <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Agent Profile</th>
-                            <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Voice Model</th>
-                            <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Personality</th>
-                            <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">Interruption Sensitivity</th>
-                            <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">Status</th>
-                            <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">Quick Active Status</th>
-                            <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-center">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#1F2937]/60">
-                          {agents.length === 0 ? (
-                            <tr>
-                              <td colSpan={7} className="p-12 text-center text-[#94A3B8] italic bg-[#020617]/30">
-                                No agents configured. Click "Add New Agent" to create one.
-                              </td>
-                            </tr>
-                          ) : (
-                            agents.map((agt) => {
-                              return (
-                                <motion.tr 
-                                  whileHover={{ backgroundColor: "rgba(59, 130, 246, 0.02)" }}
-                                  key={agt.id} 
-                                  className="transition-colors text-white"
-                                >
-                                  <td className="p-4">
-                                    <div className="flex items-center gap-2.5">
-                                      <div className={`w-7.5 h-7.5 rounded-full flex items-center justify-center transition-colors ${
-                                        agt.isActive ? 'bg-[#3B82F6]/20 text-[#3B82F6] border border-[#3B82F6]/30' : 'bg-[#111827] text-[#94A3B8] border border-[#1F2937]'
-                                      }`}>
-                                        <Volume2Icon className="w-4 h-4" />
-                                      </div>
-                                      <div>
-                                        <span className="font-extrabold block text-white text-sm">{agt.name}</span>
-                                        <span className="text-[10px] text-[#94A3B8] font-mono">ID: {agt.id}</span>
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="p-4 font-mono text-gray-300">
-                                    {agt.voice}
-                                  </td>
-                                  <td className="p-4 text-gray-300 font-medium">
-                                    {agt.personality}
-                                  </td>
-                                  <td className="p-4 text-center">
-                                    <span className="px-2.5 py-1 rounded-md text-[10px] font-mono font-bold bg-[#020617] border border-[#1F2937] text-gray-300">
-                                      {agt.interruptionSensitivity}
-                                    </span>
-                                  </td>
-                                  <td className="p-4 text-center">
-                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border flex items-center justify-center gap-1.5 w-24 mx-auto ${
-                                      agt.isActive 
-                                        ? 'bg-emerald-950/20 text-emerald-400 border-emerald-900/30' 
-                                        : 'bg-gray-900 text-[#94A3B8] border-gray-800'
-                                    }`}>
-                                      <span className={`w-1.5 h-1.5 rounded-full ${agt.isActive ? 'bg-[#10B981]' : 'bg-gray-500'}`}></span>
-                                      {agt.isActive ? 'Active' : 'Inactive'}
-                                    </span>
-                                  </td>
-                                  <td className="p-4 text-center">
-                                    {/* Beautiful Toggle Switch */}
-                                    <div className="flex items-center justify-center">
-                                      <button 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const updated = agents.map(a => a.id === agt.id ? { ...a, isActive: !a.isActive } : a);
-                                          onUpdateAgents(updated);
-                                        }}
-                                        className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
-                                          agt.isActive ? 'bg-[#3B82F6]' : 'bg-gray-800 border border-[#1F2937]'
-                                        }`}
-                                      >
-                                        <motion.div 
-                                          layout
-                                          className="bg-white w-4 h-4 rounded-full shadow-md"
-                                          animate={{ x: agt.isActive ? 20 : 0 }}
-                                          transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                                        />
-                                      </button>
-                                    </div>
-                                  </td>
-                                  <td className="p-4">
-                                    <div className="flex items-center justify-center gap-2">
-                                      <button 
-                                        onClick={() => {
-                                          setSelectedAgentForStudio(agt);
-                                          setAgentSubTab('studio');
-                                          setStudioSubTab('configure');
-                                        }}
-                                        className="bg-[#3B82F6]/15 hover:bg-[#3B82F6] text-[#3B82F6] hover:text-white px-2.5 py-1.5 rounded-lg border border-[#3B82F6]/30 hover:border-[#3B82F6] text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
-                                      >
-                                        <Sliders className="w-3 h-3" /> View Studio
-                                      </button>
-                                      <button 
-                                        onClick={() => {
-                                          setEditingAgent(agt);
-                                          setAgentSubTab('edit');
-                                        }}
-                                        className="bg-gray-950 hover:bg-gray-800 text-gray-300 hover:text-white p-1.5 rounded-lg border border-gray-800 hover:border-gray-700 transition-all cursor-pointer"
-                                        title="Edit Agent"
-                                      >
-                                        <Edit className="w-3 h-3" />
-                                      </button>
-                                      <button 
-                                        onClick={() => {
-                                          deleteAgent(agt.id);
-                                        }}
-                                        className="bg-red-950/20 hover:bg-red-600/20 text-red-400 p-1.5 rounded-lg border border-red-900/30 hover:border-red-500/30 transition-all cursor-pointer"
-                                        title="Delete Agent"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </motion.tr>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <p className="text-[10px] text-[#94A3B8]/60 mt-6 italic">
-                    *Select "View Studio" to access full voice synthesis simulators, system instructions, and dynamic live tests. Toggle "Quick Active Status" to immediately toggle the agent's availability.
+              {/* Header section with subtitle & actions */}
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-[#111827]/90 backdrop-blur-md border border-[#1F2937] p-6 rounded-2xl shadow-xl">
+                <div>
+                  <h2 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                    <span className="p-2 bg-[#3B82F6]/10 text-[#3B82F6] rounded-xl border border-[#3B82F6]/20">
+                      <Heart className="w-5 h-5 text-red-400 fill-red-400/20 animate-pulse" />
+                    </span>
+                    ChatGPT Medical Specialist AI Advisor
+                  </h2>
+                  <p className="text-[11px] font-mono text-[#94A3B8] mt-1 uppercase tracking-wider">
+                    Answering complex medical, diagnostic, and preventative healthcare questions powered by OpenAI
                   </p>
-                </motion.div>
-              )}
+                </div>
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                  <motion.button 
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setEditingAgent(null);
+                      setNewAgent({
+                        name: '',
+                        voice: 'General Medicine Specialist',
+                        personality: 'Empathetic, clear, and clinical',
+                        interruptionSensitivity: 'Medium',
+                        greetingMessage: 'Hello! I am ready to assist you. What health-related questions do you have today?',
+                        systemPrompt: 'You are a compassionate Medical Specialist. Provide educational healthcare guidance, cautioning the user to seek in-person diagnostic assessments for critical symptoms.'
+                      });
+                      setShowAgentModal(true);
+                    }}
+                    className="bg-gradient-to-r from-red-500 to-[#3B82F6] hover:from-red-600 hover:to-[#3B82F6]/90 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-red-500/10 transition-all w-full md:w-auto"
+                  >
+                    <Plus className="w-4 h-4" /> Add Medical Specialist
+                  </motion.button>
+                </div>
+              </div>
 
-              {agentSubTab === 'studio' && selectedAgentForStudio && (
-                /* FULL PAGE STUDIO CONFIG + TEST LIVE */
-                <motion.div 
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="bg-[#111827]/90 backdrop-blur-md border border-[#1F2937] rounded-2xl p-6 flex flex-col justify-between shadow-2xl relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-[#3B82F6]/5 rounded-full blur-3xl pointer-events-none"></div>
-                  
-                  <div className="h-full flex flex-col justify-between space-y-6">
-                    <div>
-                      {/* Studio Header & Sub-tabs */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#1F2937] pb-4 gap-4">
-                        <div>
-                          <span className="text-[9px] text-[#3B82F6] font-extrabold uppercase bg-[#3B82F6]/10 border border-[#3B82F6]/25 px-2 py-0.5 rounded font-mono">Agent Studio Workspace</span>
-                          <h3 className="text-white font-extrabold text-xl mt-1 font-display">{selectedAgentForStudio.name}</h3>
-                          <p className="text-xs text-[#94A3B8] font-medium mt-0.5">Voice Model: {selectedAgentForStudio.voice} • Personality: {selectedAgentForStudio.personality}</p>
-                        </div>
-
-                        {/* Sub-tabs selector */}
-                        <div className="bg-[#020617] p-1.5 rounded-xl border border-[#1F2937] flex text-xs">
-                          <button 
-                            onClick={() => setStudioSubTab('configure')}
-                            className={`px-5 py-2 rounded-lg font-bold transition-all cursor-pointer ${
-                              studioSubTab === 'configure' ? 'bg-[#111827] text-[#3B82F6] border border-[#1F2937] font-extrabold' : 'text-[#94A3B8] hover:text-gray-300'
-                            }`}
-                          >
-                            Configure Rules
-                          </button>
-                          <button 
-                            onClick={() => setStudioSubTab('test')}
-                            className={`px-5 py-2 rounded-lg font-bold transition-all cursor-pointer ${
-                              studioSubTab === 'test' ? 'bg-[#111827] text-[#3B82F6] border border-[#1F2937] font-extrabold' : 'text-[#94A3B8] hover:text-gray-300'
-                            }`}
-                          >
-                            Test Live
-                          </button>
-                        </div>
+              {/* Main Workspace Layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                
+                {/* Left Side: Medical Specialist List */}
+                <div className="lg:col-span-4 bg-[#111827]/90 backdrop-blur-md border border-[#1F2937] p-5 rounded-2xl shadow-xl flex flex-col justify-between">
+                  <div>
+                    <div className="mb-4">
+                      <label className="text-[10px] font-mono font-bold text-gray-400 block mb-1 uppercase tracking-wider">Search Specialists</label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-[#94A3B8]" />
+                        <input 
+                          type="text"
+                          placeholder="Filter doctors by name/specialty..."
+                          value={doctorSearchQuery}
+                          onChange={(e) => setDoctorSearchQuery(e.target.value)}
+                          className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl pl-9 pr-3 py-2 outline-none transition-all placeholder:text-[#475569]"
+                        />
                       </div>
-
-                      {/* CONFIGURE VIEW */}
-                      {studioSubTab === 'configure' && (
-                        <div className="space-y-6 mt-6 max-h-[600px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-800">
-                          
-                          {/* Top row fields */}
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                            <div>
-                              <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Agent Name *</label>
-                              <input 
-                                type="text" 
-                                value={selectedAgentForStudio.name}
-                                onChange={(e) => {
-                                  const updated = agents.map(a => a.id === selectedAgentForStudio.id ? { ...a, name: e.target.value } : a);
-                                  onUpdateAgents(updated);
-                                  setSelectedAgentForStudio({ ...selectedAgentForStudio, name: e.target.value });
-                                }}
-                                className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-4 py-2.5 outline-none transition-all"
-                              />
-                            </div>
-                            
-                            <div>
-                              <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Interruption Sensitivity</label>
-                              <select 
-                                value={selectedAgentForStudio.interruptionSensitivity}
-                                onChange={(e) => {
-                                  const val = e.target.value as any;
-                                  const updated = agents.map(a => a.id === selectedAgentForStudio.id ? { ...a, interruptionSensitivity: val } : a);
-                                  onUpdateAgents(updated);
-                                  setSelectedAgentForStudio({ ...selectedAgentForStudio, interruptionSensitivity: val });
-                                }}
-                                className="w-full bg-[#020617] border border-[#1F2937] text-xs text-[#94A3B8] rounded-xl px-4 py-2.5 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
-                              >
-                                <option value="Low">Low - Interruption disabled</option>
-                                <option value="Medium">Medium - Balanced natural turns</option>
-                                <option value="High">High - Instant interruption response</option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Active Availability</label>
-                              <select 
-                                value={selectedAgentForStudio.isActive ? "true" : "false"}
-                                onChange={(e) => {
-                                  const val = e.target.value === "true";
-                                  const updated = agents.map(a => a.id === selectedAgentForStudio.id ? { ...a, isActive: val } : a);
-                                  onUpdateAgents(updated);
-                                  setSelectedAgentForStudio({ ...selectedAgentForStudio, isActive: val });
-                                }}
-                                className="w-full bg-[#020617] border border-[#1F2937] text-xs text-[#94A3B8] rounded-xl px-4 py-2.5 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
-                              >
-                                <option value="true">Active Receptionist</option>
-                                <option value="false">Inactive / Standby</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <div>
-                              <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Select Voice Model</label>
-                              <select 
-                                value={selectedAgentForStudio.voice}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const updated = agents.map(a => a.id === selectedAgentForStudio.id ? { ...a, voice: val } : a);
-                                  onUpdateAgents(updated);
-                                  setSelectedAgentForStudio({ ...selectedAgentForStudio, voice: val });
-                                }}
-                                className="w-full bg-[#020617] border border-[#1F2937] text-xs text-[#94A3B8] rounded-xl px-4 py-2.5 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
-                              >
-                                <option value="Alloy - Neutral">Alloy - Neutral (Standard)</option>
-                                <option value="Alloy - Friendly & Warm">Alloy - Friendly & Warm</option>
-                                <option value="Echo - Resonant Deep">Echo - Resonant Deep</option>
-                                <option value="Shimmer - Sweet & Crisp">Shimmer - Sweet & Crisp</option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Select Personality Vibe</label>
-                              <select 
-                                value={selectedAgentForStudio.personality}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const updated = agents.map(a => a.id === selectedAgentForStudio.id ? { ...a, personality: val } : a);
-                                  onUpdateAgents(updated);
-                                  setSelectedAgentForStudio({ ...selectedAgentForStudio, personality: val });
-                                }}
-                                className="w-full bg-[#020617] border border-[#1F2937] text-xs text-[#94A3B8] rounded-xl px-4 py-2.5 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
-                              >
-                                <option value="Professional">Professional & Courteous</option>
-                                <option value="Professional & Empathetic">Professional & Empathetic</option>
-                                <option value="Casual & Friendly">Casual & Friendly</option>
-                                <option value="Direct & Efficient">Direct & Efficient</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* Greeting Message */}
-                          <div>
-                            <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Greeting Message *</label>
-                            <textarea 
-                              rows={3}
-                              value={selectedAgentForStudio.greetingMessage}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                const updated = agents.map(a => a.id === selectedAgentForStudio.id ? { ...a, greetingMessage: val } : a);
-                                onUpdateAgents(updated);
-                                setSelectedAgentForStudio({ ...selectedAgentForStudio, greetingMessage: val });
-                              }}
-                              className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-4 py-3 outline-none transition-all leading-relaxed"
-                            />
-                            <span className="text-[9.5px] text-[#94A3B8]/60 block mt-1.5 font-medium">The first sentence the AI speaks when answering incoming customer calls.</span>
-                          </div>
-
-                          {/* System Prompt Instructions */}
-                          <div>
-                            <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">System Prompt & Behavioral Rules</label>
-                            <textarea 
-                              rows={6}
-                              value={selectedAgentForStudio.systemPrompt}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                const updated = agents.map(a => a.id === selectedAgentForStudio.id ? { ...a, systemPrompt: val } : a);
-                                onUpdateAgents(updated);
-                                setSelectedAgentForStudio({ ...selectedAgentForStudio, systemPrompt: val });
-                              }}
-                              className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-4 py-3 font-mono outline-none transition-all leading-relaxed"
-                            />
-                            <span className="text-[9.5px] text-[#94A3B8]/60 block mt-1.5 font-medium">Define strict guidelines on how the receptionist handles questions, pitches oil changes, checkups, pricing, and schedules.</span>
-                          </div>
-
-                        </div>
-                      )}
-
-                      {/* TEST LIVE VIEW */}
-                      {studioSubTab === 'test' && (
-                        <div className="space-y-6 mt-6 max-w-lg mx-auto py-4">
-                          <div className="bg-[#3B82F6]/10 border border-[#3B82F6]/15 rounded-2xl p-4 text-center text-xs">
-                            <span className="text-[#3B82F6] font-extrabold block mb-1 text-sm tracking-tight">🎙 Live Voice Receptionist Sandbox</span>
-                            <p className="text-[#94A3B8]">Interact directly with <span className="text-white font-extrabold">{selectedAgentForStudio.name}</span> instantly. Speak into your microphone or type replies below.</p>
-                          </div>
-                          
-                          <DialerSim 
-                            agentName={selectedAgentForStudio.name}
-                            agentVoice={selectedAgentForStudio.voice}
-                            onAppointmentBooked={handleDirectDialerBooking}
-                          />
-                        </div>
-                      )}
-
                     </div>
 
-                    {/* Bottom Save actions */}
-                    {studioSubTab === 'configure' && (
-                      <div className="pt-4 border-t border-[#1F2937] mt-6 flex flex-col sm:flex-row gap-4 sm:items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
-                          <Info className="w-4 h-4 text-[#3B82F6] animate-pulse" />
-                          <span className="font-medium">All parameters sync automatically in your secure local session.</span>
-                        </div>
-                        <div className="flex gap-3">
-                          <button 
-                            onClick={() => {
-                              setAgentSubTab('list');
-                            }}
-                            className="bg-transparent hover:bg-gray-800 text-[#94A3B8] hover:text-white px-5 py-2.5 rounded-xl text-xs font-bold border border-[#1F2937] transition-all cursor-pointer"
-                          >
-                            Back to List
-                          </button>
-                          <motion.button 
-                            whileHover={{ scale: 1.03 }}
-                            whileTap={{ scale: 0.97 }}
-                            onClick={() => {
-                              alert("Configurations updated and deployed successfully!");
-                              setAgentSubTab('list');
-                            }}
-                            className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white text-xs font-extrabold px-6 py-2.5 rounded-xl cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
-                          >
-                            Save & Return to Agents
-                          </motion.button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-
-              {agentSubTab === 'edit' && editingAgent && (
-                /* FULL PAGE DETAILED EDIT FORM */
-                <motion.div 
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="bg-[#111827]/90 backdrop-blur-md border border-[#1F2937] rounded-2xl p-6 flex flex-col justify-between shadow-2xl relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-[#3B82F6]/5 rounded-full blur-3xl pointer-events-none"></div>
-
-                  <div className="h-full flex flex-col justify-between space-y-6">
-                    <div>
-                      {/* Edit Header */}
-                      <div className="border-b border-[#1F2937] pb-4">
-                        <span className="text-[9px] text-[#3B82F6] font-extrabold uppercase bg-[#3B82F6]/10 border border-[#3B82F6]/25 px-2 py-0.5 rounded font-mono">Agent Editor Mode</span>
-                        <h3 className="text-white font-extrabold text-xl mt-1 font-display">Configure {editingAgent.name}</h3>
-                        <p className="text-xs text-[#94A3B8]">Full panel to alter core receptionist behavior, speech profile, greeting sequences and prompt overrides</p>
-                      </div>
-
-                      {/* Editing Fields Form */}
-                      <div className="space-y-6 mt-6 max-h-[600px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-800">
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                          <div>
-                            <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Agent Name *</label>
-                            <input 
-                              type="text" 
-                              value={editingAgent.name}
-                              onChange={(e) => setEditingAgent({ ...editingAgent, name: e.target.value })}
-                              className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-4 py-2.5 outline-none transition-all"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Interruption Sensitivity</label>
-                            <select 
-                              value={editingAgent.interruptionSensitivity}
-                              onChange={(e) => setEditingAgent({ ...editingAgent, interruptionSensitivity: e.target.value as any })}
-                              className="w-full bg-[#020617] border border-[#1F2937] text-xs text-[#94A3B8] rounded-xl px-4 py-2.5 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
+                    <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                      {agents
+                        .filter(agt => 
+                          agt.name.toLowerCase().includes(doctorSearchQuery.toLowerCase()) || 
+                          (agt.voice || '').toLowerCase().includes(doctorSearchQuery.toLowerCase())
+                        )
+                        .map((agt) => {
+                          const isSelected = selectedMedicalAgentId === agt.id;
+                          return (
+                            <div 
+                              key={agt.id}
+                              onClick={() => setSelectedMedicalAgentId(agt.id)}
+                              className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 relative group ${
+                                isSelected 
+                                  ? 'bg-[#3B82F6]/10 border-[#3B82F6]/50 shadow-md' 
+                                  : 'bg-[#020617]/50 border-[#1F2937] hover:border-gray-700'
+                              }`}
                             >
-                              <option value="Low">Low - Interruption disabled</option>
-                              <option value="Medium">Medium - Balanced natural turns</option>
-                              <option value="High">High - Instant interruption response</option>
-                            </select>
+                              <div className="w-10 h-10 rounded-xl bg-slate-900 border border-[#1F2937] flex items-center justify-center shrink-0">
+                                <span className="text-sm font-extrabold text-red-400 font-sans">🩺</span>
+                              </div>
+                              <div className="space-y-1 pr-6 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-extrabold text-white text-xs block">{agt.name}</span>
+                                  {agt.isActive && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Active"></span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] font-medium text-red-400/90 font-mono block bg-red-950/20 px-2 py-0.5 rounded border border-red-900/30 w-max">
+                                  {agt.voice || 'Medical Specialist'}
+                                </span>
+                                <p className="text-[10px] text-[#94A3B8] line-clamp-1 italic">
+                                  "${agt.personality || 'Empathetic and authoritative'}"
+                                </p>
+                              </div>
+
+                              {/* Actions on Doctor */}
+                              <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingAgent(agt);
+                                    setNewAgent({ ...agt });
+                                    setShowAgentModal(true);
+                                  }}
+                                  className="p-1 hover:bg-[#1F2937] text-gray-400 hover:text-white rounded transition-colors"
+                                  title="Edit Doctor Details"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`Are you sure you want to remove ${agt.name}?`)) {
+                                      deleteAgent(agt.id);
+                                    }
+                                  }}
+                                  className="p-1 hover:bg-red-950/20 text-gray-400 hover:text-red-400 rounded transition-colors"
+                                  title="Remove Doctor"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      {agents.length === 0 && (
+                        <div className="p-8 text-center text-xs text-gray-500 italic bg-[#020617]/50 border border-[#1F2937] rounded-xl">
+                          No specialists found. Click "+ Add Specialist" to register one.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-[#1F2937] space-y-2">
+                    <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                      <span>Total Specialists:</span>
+                      <span className="font-bold text-white">{agents.length}</span>
+                    </div>
+                    <div className="p-2 bg-[#020617]/40 border border-[#1F2937] rounded-lg text-[9px] text-[#94A3B8] italic">
+                      *You can edit medical prompts and instructions dynamically. Changes persist instantly!
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side: ChatGPT-Style Conversational Interface */}
+                <div className="lg:col-span-8 bg-[#111827]/90 backdrop-blur-md border border-[#1F2937] rounded-2xl shadow-xl flex flex-col min-h-[560px] overflow-hidden">
+                  
+                  {/* Chat Header */}
+                  {(() => {
+                    const activeDoc = agents.find(a => a.id === selectedMedicalAgentId) || agents[0];
+                    if (!activeDoc) {
+                      return (
+                        <div className="p-8 text-center text-xs text-gray-500 italic">
+                          Please select or add a Medical Specialist to begin consultation.
+                        </div>
+                      );
+                    }
+
+                    const sessionMessages = medicalChatSessions[activeDoc.id] || [];
+
+                    return (
+                      <>
+                        <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-red-950/20 text-red-400 border border-red-900/40 flex items-center justify-center">
+                              <Heart className="w-5 h-5 fill-red-400/20" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <h3 className="text-white font-extrabold text-sm">{activeDoc.name}</h3>
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[8px] font-mono font-bold uppercase tracking-wide border border-emerald-900/50">Online</span>
+                              </div>
+                              <p className="text-[10px] text-[#94A3B8] font-mono uppercase tracking-wider">{activeDoc.voice || 'Medical Specialist'}</p>
+                            </div>
                           </div>
 
-                          <div>
-                            <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Active Agent Status</label>
-                            <div className="flex items-center gap-3 bg-[#020617] border border-[#1F2937] rounded-xl px-4 py-2 h-[38px]">
-                              <button 
-                                type="button"
-                                onClick={() => setEditingAgent({ ...editingAgent, isActive: !editingAgent.isActive })}
-                                className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
-                                  editingAgent.isActive ? 'bg-[#3B82F6]' : 'bg-gray-800 border border-[#1F2937]'
+                          <div className="flex items-center gap-2 self-stretch sm:self-auto">
+                            <button
+                              onClick={() => {
+                                setMedicalChatSessions(prev => ({
+                                  ...prev,
+                                  [activeDoc.id]: []
+                                }));
+                              }}
+                              className="text-[10px] text-gray-400 hover:text-white bg-[#020617] hover:bg-[#111827] border border-[#1F2937] px-2.5 py-1.5 rounded-lg font-mono transition-colors cursor-pointer flex items-center gap-1"
+                              title="Clear current session history"
+                            >
+                              <RefreshCw className="w-3 h-3" /> Clear History
+                            </button>
+
+                            <button
+                              onClick={() => setShowKeyOverrideInput(!showKeyOverrideInput)}
+                              className={`text-[10px] px-2.5 py-1.5 rounded-lg font-mono border transition-all cursor-pointer flex items-center gap-1 ${
+                                medicalOpenAIKeyOverride 
+                                  ? 'bg-emerald-950/20 text-emerald-400 border-emerald-900/30' 
+                                  : 'bg-[#020617] text-gray-400 hover:text-white border-[#1F2937]'
+                              }`}
+                              title="Configure custom OpenAI API Key"
+                            >
+                              <Key className="w-3 h-3" /> 
+                              {medicalOpenAIKeyOverride ? 'Key Active' : 'API Key'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Optional OpenAI Key Override input bar */}
+                        <AnimatePresence>
+                          {showKeyOverrideInput && (
+                            <motion.div 
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="bg-[#020617] border-b border-[#1F2937] px-5 py-3 overflow-hidden"
+                            >
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <div className="relative flex-1">
+                                  <Key className="absolute left-3 top-2.5 w-3.5 h-3.5 text-[#94A3B8]" />
+                                  <input 
+                                    type="password"
+                                    placeholder="Enter your OpenAI API Key (sk-...) to override server default"
+                                    value={medicalOpenAIKeyOverride}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setMedicalOpenAIKeyOverride(val);
+                                      localStorage.setItem('vd_openai_api_key_override', val);
+                                    }}
+                                    className="w-full bg-[#111827] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl pl-9 pr-3 py-2 outline-none transition-all placeholder:text-[#475569]"
+                                  />
+                                </div>
+                                {medicalOpenAIKeyOverride && (
+                                  <button
+                                    onClick={() => {
+                                      setMedicalOpenAIKeyOverride('');
+                                      localStorage.removeItem('vd_openai_api_key_override');
+                                    }}
+                                    className="bg-red-950/20 hover:bg-red-600/20 text-red-400 text-xs px-3 py-2 rounded-xl border border-red-900/30 hover:border-red-500/30 font-mono transition-all cursor-pointer"
+                                  >
+                                    Clear Key
+                                  </button>
+                                )}
+                              </div>
+                              <p className="text-[9px] text-[#94A3B8] mt-1.5 italic">
+                                *Keys are processed securely in our custom full stack backend (`/api/medical-chat`) and never saved anywhere except your local browser storage.
+                              </p>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
+                        {/* Conversational Screen (Feed) */}
+                        <div className="flex-1 overflow-y-auto p-5 space-y-4 max-h-[380px] bg-[#020617]/20 flex flex-col">
+                          
+                          {/* Selected Doctor Welcome Message */}
+                          <div className="flex items-start gap-3 max-w-[85%]">
+                            <div className="w-8 h-8 rounded-full bg-slate-900 border border-[#1F2937] flex items-center justify-center shrink-0">
+                              <span className="text-xs">🩺</span>
+                            </div>
+                            <div className="bg-[#111827] border border-[#1F2937] rounded-2xl rounded-tl-none p-3.5 shadow-sm text-xs text-gray-200 leading-relaxed whitespace-pre-wrap">
+                              {activeDoc.greetingMessage}
+                            </div>
+                          </div>
+
+                          {/* Dynamic Message Logs */}
+                          {sessionMessages.map((msg, idx) => {
+                            const isUser = msg.role === 'user';
+                            return (
+                              <div 
+                                key={idx}
+                                className={`flex items-start gap-3 max-w-[85%] ${
+                                  isUser ? 'self-end flex-row-reverse' : ''
                                 }`}
                               >
-                                <motion.div 
-                                  layout
-                                  className="bg-white w-4 h-4 rounded-full shadow-md"
-                                  animate={{ x: editingAgent.isActive ? 20 : 0 }}
-                                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                                />
-                              </button>
-                              <span className="text-xs font-bold text-gray-300">
-                                {editingAgent.isActive ? 'Active on Dashboard' : 'Standby / Inactive'}
-                              </span>
+                                <div className={`w-8 h-8 rounded-full border flex items-center justify-center shrink-0 ${
+                                  isUser 
+                                    ? 'bg-[#3B82F6]/20 text-[#3B82F6] border-[#3B82F6]/30' 
+                                    : 'bg-slate-900 text-[#94A3B8] border-[#1F2937]'
+                                }`}>
+                                  <span className="text-xs">{isUser ? '👤' : '🩺'}</span>
+                                </div>
+                                <div className={`p-3.5 shadow-sm text-xs leading-relaxed whitespace-pre-wrap rounded-2xl ${
+                                  isUser 
+                                    ? 'bg-[#3B82F6]/15 border border-[#3B82F6]/30 text-white rounded-tr-none' 
+                                    : 'bg-[#111827] border border-[#1F2937] text-gray-200 rounded-tl-none'
+                                }`}>
+                                  {msg.content}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {/* Thinking / Loader state */}
+                          {medicalChatLoading && (
+                            <div className="flex items-start gap-3 max-w-[80%]">
+                              <div className="w-8 h-8 rounded-full bg-slate-900 border border-[#1F2937] flex items-center justify-center shrink-0">
+                                <span className="text-xs">🩺</span>
+                              </div>
+                              <div className="bg-[#111827] border border-[#1F2937] rounded-2xl rounded-tl-none p-3 px-4 shadow-sm flex items-center gap-1.5 text-xs text-gray-400 font-mono">
+                                <span className="animate-bounce font-extrabold text-[#3B82F6]">●</span>
+                                <span className="animate-bounce delay-100 font-extrabold text-red-400">●</span>
+                                <span className="animate-bounce delay-200 font-extrabold text-emerald-400">●</span>
+                                <span className="ml-1 text-[10px] uppercase tracking-wider text-[#94A3B8] font-bold font-mono">Dr. is analyzing...</span>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                          <div>
-                            <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Select Voice Model</label>
-                            <select 
-                              value={editingAgent.voice}
-                              onChange={(e) => setEditingAgent({ ...editingAgent, voice: e.target.value })}
-                              className="w-full bg-[#020617] border border-[#1F2937] text-xs text-[#94A3B8] rounded-xl px-4 py-2.5 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
+                        {/* Interactive Suggestion Prompts */}
+                        <div className="bg-[#020617]/50 border-t border-[#1F2937]/50 px-5 py-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
+                          <span className="text-[9px] font-mono font-bold text-[#94A3B8] uppercase tracking-wider shrink-0">Suggested Questions:</span>
+                          {[
+                            "Explain chest pain vs heartburn signs",
+                            "Pediatric treatment for infant fever",
+                            "Healthy habits for lower blood pressure"
+                          ].map((suggestion, sIdx) => (
+                            <button
+                              key={sIdx}
+                              type="button"
+                              onClick={() => setMedicalChatInput(suggestion)}
+                              className="text-[10px] bg-[#111827] hover:bg-[#1F2937] text-gray-300 hover:text-white px-2.5 py-1 rounded-full border border-[#1F2937] transition-all cursor-pointer truncate"
                             >
-                              <option value="Alloy - Neutral">Alloy - Neutral (Standard)</option>
-                              <option value="Alloy - Friendly & Warm">Alloy - Friendly & Warm</option>
-                              <option value="Echo - Resonant Deep">Echo - Resonant Deep</option>
-                              <option value="Shimmer - Sweet & Crisp">Shimmer - Sweet & Crisp</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Select Personality Vibe</label>
-                            <select 
-                              value={editingAgent.personality}
-                              onChange={(e) => setEditingAgent({ ...editingAgent, personality: e.target.value })}
-                              className="w-full bg-[#020617] border border-[#1F2937] text-xs text-[#94A3B8] rounded-xl px-4 py-2.5 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
-                            >
-                              <option value="Professional">Professional & Courteous</option>
-                              <option value="Professional & Empathetic">Professional & Empathetic</option>
-                              <option value="Casual & Friendly">Casual & Friendly</option>
-                              <option value="Direct & Efficient">Direct & Efficient</option>
-                            </select>
-                          </div>
+                              {suggestion}
+                            </button>
+                          ))}
                         </div>
 
-                        {/* Greeting Message */}
-                        <div>
-                          <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">Greeting Message *</label>
-                          <textarea 
-                            rows={3}
-                            value={editingAgent.greetingMessage}
-                            onChange={(e) => setEditingAgent({ ...editingAgent, greetingMessage: e.target.value })}
-                            className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-4 py-3 outline-none transition-all leading-relaxed"
-                          />
-                          <span className="text-[9.5px] text-[#94A3B8]/60 block mt-1.5 font-medium">The introductory phrase this agent speaks immediately upon customer pickup.</span>
-                        </div>
-
-                        {/* System Prompt Rules */}
-                        <div>
-                          <label className="text-[10px] text-[#94A3B8] uppercase font-bold tracking-wider font-mono block mb-1.5">System Prompt & Instruction Overrides</label>
-                          <textarea 
-                            rows={6}
-                            value={editingAgent.systemPrompt}
-                            onChange={(e) => setEditingAgent({ ...editingAgent, systemPrompt: e.target.value })}
-                            className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-4 py-3 font-mono outline-none transition-all leading-relaxed"
-                          />
-                          <span className="text-[9.5px] text-[#94A3B8]/60 block mt-1.5 font-medium">Core rules the agent follows, such as matching services, lookup procedures, quoting repair estimates, etc.</span>
-                        </div>
-
-                      </div>
-                    </div>
-
-                    {/* Form actions */}
-                    <div className="pt-4 border-t border-[#1F2937] mt-6 flex items-center justify-between">
-                      <p className="text-[10px] text-[#94A3B8]/60 italic">
-                        *Verify changes in live sandbox simulator once saved.
-                      </p>
-                      <div className="flex gap-3">
-                        <button 
-                          type="button"
-                          onClick={() => {
-                            setAgentSubTab('list');
-                            setEditingAgent(null);
+                        {/* Prompt Input Form */}
+                        <form 
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleSendMedicalMessage();
                           }}
-                          className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-5 py-2.5 rounded-xl text-xs font-bold border border-[#1F2937] transition-all cursor-pointer"
+                          className="bg-[#020617] px-5 py-4 border-t border-[#1F2937] flex items-center gap-3"
                         >
-                          Cancel
-                        </button>
-                        <motion.button 
-                          whileHover={{ scale: 1.03 }}
-                          whileTap={{ scale: 0.97 }}
-                          onClick={() => {
-                            if (!editingAgent.name) return;
-                            const updated = agents.map(a => a.id === editingAgent.id ? editingAgent : a);
-                            onUpdateAgents(updated);
-                            setAgentSubTab('list');
-                            setEditingAgent(null);
-                            alert("Agent edits saved successfully!");
-                          }}
-                          className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white text-xs font-extrabold px-6 py-2.5 rounded-xl cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
-                        >
-                          Save Changes
-                        </motion.button>
-                      </div>
-                    </div>
-
-                  </div>
-                </motion.div>
-              )}
-
+                          <input 
+                            type="text"
+                            required
+                            disabled={medicalChatLoading}
+                            value={medicalChatInput}
+                            onChange={(e) => setMedicalChatInput(e.target.value)}
+                            placeholder={`Ask ${activeDoc.name} any health-related question...`}
+                            className="flex-1 bg-[#111827] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-4 py-3 outline-none transition-all placeholder:text-[#475569] disabled:opacity-50"
+                          />
+                          <motion.button
+                            whileHover={{ scale: 1.03 }}
+                            whileTap={{ scale: 0.97 }}
+                            type="submit"
+                            disabled={medicalChatLoading || !medicalChatInput.trim()}
+                            className="bg-gradient-to-r from-red-500 to-[#3B82F6] hover:from-red-600 hover:to-[#3B82F6]/90 text-white p-3 rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-red-500/10 transition-all flex items-center justify-center shrink-0"
+                          >
+                            <Send className="w-4 h-4" />
+                          </motion.button>
+                        </form>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
             </motion.div>
           )}
- 
+
           {/* SERVICES TAB */}
           {activeTab === 'services' && (
             <motion.div 
@@ -3150,7 +3187,7 @@ export default function Dashboard({
           )}
  
           {/* WIDGET TAB */}
-          {activeTab === 'widget' && (
+          {(activeTab as any) === 'widget' && (
             <motion.div 
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -3928,7 +3965,7 @@ export default function Dashboard({
           )}
 
           {/* WEBSITE TAB */}
-          {activeTab === 'website' && (
+          {(activeTab as any) === 'website' && (
             <motion.div 
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -4630,85 +4667,95 @@ export default function Dashboard({
           <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-xl shadow-2xl relative overflow-hidden animate-zoomIn">
             
             <div className="bg-[#020617] px-5 py-4 border-b border-[#1F2937] flex items-center justify-between">
-              <h3 className="text-white font-extrabold text-sm">Create Agent</h3>
-              <button onClick={() => setShowAgentModal(false)} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
+              <h3 className="text-white font-extrabold text-sm">
+                {editingAgent ? 'Edit Medical Specialist Profile' : 'Register New Medical Specialist'}
+              </h3>
+              <button onClick={() => {
+                setShowAgentModal(false);
+                setEditingAgent(null);
+              }} className="text-[#94A3B8] hover:text-white cursor-pointer transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
  
-            <form onSubmit={handleCreateAgent} className="p-6 space-y-4">
+            <form onSubmit={handleSaveAgentModal} className="p-6 space-y-4">
               
               <div>
-                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Agent Name *</label>
+                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Specialist Full Name *</label>
                 <input 
                   type="text" 
                   required
                   value={newAgent.name}
                   onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })}
-                  placeholder="Reception AI"
+                  placeholder="e.g. Dr. Sarah Jenkins"
                   className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
                 />
               </div>
  
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Voice</label>
+                  <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Medical Specialty</label>
                   <select 
                     value={newAgent.voice}
                     onChange={(e) => setNewAgent({ ...newAgent, voice: e.target.value })}
                     className="w-full bg-[#020617] border border-[#1F2937] text-xs text-gray-300 rounded-xl px-3 py-2 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
                   >
-                    <option value="Alloy - Neutral">Alloy - Neutral</option>
-                    <option value="Alloy - Friendly & Warm">Alloy - Friendly & Warm</option>
-                    <option value="Echo - Resonant Deep">Echo - Resonant Deep</option>
-                    <option value="Shimmer - Sweet & Crisp">Shimmer - Sweet & Crisp</option>
+                    <option value="General Medicine Specialist">General Medicine Specialist</option>
+                    <option value="Pediatrics Expert">Pediatrics Expert</option>
+                    <option value="Cardiology Consultant">Cardiology Consultant</option>
+                    <option value="Neurology Specialist">Neurology Specialist</option>
+                    <option value="Dermatology Expert">Dermatology Expert</option>
+                    <option value="Psychiatry & Therapy Consultant">Psychiatry & Therapy Consultant</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Personality</label>
+                  <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Approach & Demeanor</label>
                   <select 
                     value={newAgent.personality}
                     onChange={(e) => setNewAgent({ ...newAgent, personality: e.target.value })}
                     className="w-full bg-[#020617] border border-[#1F2937] text-xs text-gray-300 rounded-xl px-3 py-2 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
                   >
-                    <option value="Professional">Professional</option>
-                    <option value="Professional & Empathetic">Professional & Empathetic</option>
-                    <option value="Casual & Friendly">Casual & Friendly</option>
+                    <option value="Compassionate and Professional">Compassionate and Professional</option>
+                    <option value="Direct, analytical, and highly detailed">Direct, analytical, and highly detailed</option>
+                    <option value="Warm, patient, and family-focused">Warm, patient, and family-focused</option>
+                    <option value="Empathetic, reassuring, and comforting">Empathetic, reassuring, and comforting</option>
                   </select>
                 </div>
               </div>
  
               <div>
-                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Interruption Sensitivity</label>
+                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Consultation Flow Sensitivity</label>
                 <select 
                   value={newAgent.interruptionSensitivity}
                   onChange={(e) => setNewAgent({ ...newAgent, interruptionSensitivity: e.target.value as any })}
                   className="w-full bg-[#020617] border border-[#1F2937] text-xs text-gray-300 rounded-xl px-3 py-2 outline-none cursor-pointer focus:border-[#3B82F6] transition-all"
                 >
-                  <option value="Low">Low - Interruption disabled</option>
-                  <option value="Medium">Medium - Balanced natural turns</option>
-                  <option value="High">High - Instant interruption response</option>
+                  <option value="Low">Low - Highly focused, thorough answers</option>
+                  <option value="Medium">Medium - Standard natural flow</option>
+                  <option value="High">High - Instant real-time adaptive response</option>
                 </select>
               </div>
  
               <div>
-                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Greeting Message</label>
+                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Clinical Welcoming Statement</label>
                 <textarea 
                   rows={2}
+                  required
                   value={newAgent.greetingMessage}
                   onChange={(e) => setNewAgent({ ...newAgent, greetingMessage: e.target.value })}
-                  placeholder="Hello! Thank you for calling..."
+                  placeholder="e.g. Hello, I am Dr. Jenkins. How can I assist you with your health symptoms or questions today?"
                   className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
                 />
               </div>
  
               <div>
-                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">System Prompt</label>
+                <label className="text-[10px] text-[#94A3B8] uppercase font-mono block mb-1">Specialized Expert AI Instructions (System Prompt)</label>
                 <textarea 
                   rows={3}
+                  required
                   value={newAgent.systemPrompt}
                   onChange={(e) => setNewAgent({ ...newAgent, systemPrompt: e.target.value })}
-                  placeholder="You are a professional auto repair receptionist..."
+                  placeholder="e.g. You are a diagnostic general practitioner. Provide clean clinical insights, recommend next steps, and warn if red flag symptoms are mentioned."
                   className="w-full bg-[#020617] border border-[#1F2937] focus:border-[#3B82F6] text-xs text-white rounded-xl px-3 py-2 outline-none transition-all"
                 />
               </div>
@@ -4716,16 +4763,19 @@ export default function Dashboard({
               <div className="pt-4 border-t border-[#1F2937] flex items-center justify-end gap-3">
                 <button 
                   type="button" 
-                  onClick={() => setShowAgentModal(false)}
+                  onClick={() => {
+                    setShowAgentModal(false);
+                    setEditingAgent(null);
+                  }}
                   className="bg-[#020617] hover:bg-[#111827] text-[#94A3B8] hover:text-white px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer border border-[#1F2937] transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
-                  className="bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] hover:from-[#3B82F6]/90 hover:to-[#8B5CF6]/90 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-md shadow-[#3B82F6]/25 transition-all"
+                  className="bg-gradient-to-r from-red-500 to-[#3B82F6] hover:from-red-600 hover:to-[#3B82F6]/90 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-md shadow-red-500/10 transition-all"
                 >
-                  Create Agent
+                  {editingAgent ? 'Save Profile Changes' : 'Register Specialist'}
                 </button>
               </div>
  

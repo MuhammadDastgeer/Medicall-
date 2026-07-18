@@ -30,7 +30,18 @@ export default function App() {
 
   const [agents, setAgents] = useState<AIAgent[]>(() => {
     const saved = localStorage.getItem('vd_agents');
-    return saved ? JSON.parse(saved) : INITIAL_AGENTS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.some((a: any) => a.name === 'Health Reception AI' || a.name === 'Welcome' || parsed.length < 3)) {
+          return INITIAL_AGENTS;
+        }
+        return parsed;
+      } catch (e) {
+        return INITIAL_AGENTS;
+      }
+    }
+    return INITIAL_AGENTS;
   });
 
   const [services, setServices] = useState<Service[]>(() => {
@@ -275,7 +286,7 @@ export default function App() {
   };
 
   // Helper component to guard protected dashboard routes
-  const ProtectedDashboard = ({ activeTab }: { activeTab: 'overview' | 'analytics' | 'conversations' | 'appointments' | 'schedule' | 'patients' | 'agents' | 'services' | 'faqs' | 'widget' | 'website' | 'notifications' | 'settings' }) => {
+  const ProtectedDashboard = ({ activeTab }: { activeTab: 'overview' | 'analytics' | 'appointments' | 'schedule' | 'patients' | 'agents' | 'services' | 'faqs' | 'notifications' | 'settings' }) => {
     if (!isLoggedIn) {
       return <Navigate to="/login" replace />;
     }
@@ -336,15 +347,12 @@ export default function App() {
           {/* Protected Tabbed Dashboard Routes */}
           <Route path="/overview" element={<ProtectedDashboard activeTab="overview" />} />
           <Route path="/analytics" element={<ProtectedDashboard activeTab="analytics" />} />
-          <Route path="/conversations" element={<ProtectedDashboard activeTab="conversations" />} />
           <Route path="/appointments" element={<ProtectedDashboard activeTab="appointments" />} />
           <Route path="/schedule" element={<ProtectedDashboard activeTab="schedule" />} />
           <Route path="/patients" element={<ProtectedDashboard activeTab="patients" />} />
           <Route path="/agents" element={<ProtectedDashboard activeTab="agents" />} />
           <Route path="/services" element={<ProtectedDashboard activeTab="services" />} />
           <Route path="/faqs" element={<ProtectedDashboard activeTab="faqs" />} />
-          <Route path="/widget" element={<ProtectedDashboard activeTab="widget" />} />
-          <Route path="/website" element={<ProtectedDashboard activeTab="website" />} />
           <Route path="/notifications" element={<ProtectedDashboard activeTab="notifications" />} />
           <Route path="/settings" element={<ProtectedDashboard activeTab="settings" />} />
 
