@@ -1,12 +1,17 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Log on startup
+  console.log("Starting server...");
+  console.log("Environment NODE_ENV:", process.env.NODE_ENV);
+  console.log("OpenAI API Key configured in env:", !!process.env.OPENAI_API_KEY);
+  console.log("Supabase URL configured in env:", !!process.env.VITE_SUPABASE_URL);
 
   // API Route for ChatGPT Medical Advisor
   app.post("/api/medical-chat", async (req, res) => {
@@ -62,14 +67,19 @@ async function startServer() {
     }
   });
 
+  const isProduction = process.env.NODE_ENV === "production" || (typeof __filename !== "undefined" && __filename.includes("dist"));
+
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProduction) {
+    console.log("Loading Vite in development mode...");
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
+    console.log("Serving static files in production mode...");
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {

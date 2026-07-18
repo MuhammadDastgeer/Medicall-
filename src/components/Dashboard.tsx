@@ -1161,10 +1161,17 @@ export default function Dashboard({
         })
       });
 
-      const result = await response.json();
+      const contentType = response.headers.get('content-type');
+      let result: any = null;
+      if (contentType && contentType.includes('application/json')) {
+        result = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(`Server returned non-JSON response (${response.status}): ${text.substring(0, 120)}...`);
+      }
 
       if (!response.ok) {
-        throw new Error(result.error?.message || `API Error: ${response.status}`);
+        throw new Error(result?.error?.message || `API Error: ${response.status}`);
       }
 
       const assistantMessageContent = result.choices?.[0]?.message?.content || "No reply received.";
