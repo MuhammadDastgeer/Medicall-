@@ -663,6 +663,15 @@ class LocalStorageSupabaseMock {
                   const filtered = list.filter((item: any) => item[field] !== val);
                   localStorage.setItem(`supabase_mock_agents_${userId}`, JSON.stringify(filtered));
                   return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
+                } else if (tableName === 'business_profiles') {
+                  localStorage.removeItem(`supabase_mock_profile_${val}`);
+                  return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
+                } else if (tableName === 'business_hours') {
+                  localStorage.removeItem(`supabase_mock_hours_${val}`);
+                  return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
+                } else if (tableName === 'profiles') {
+                  localStorage.removeItem(`supabase_mock_profile_${val}`);
+                  return onfulfilled ? onfulfilled({ data: null, error: null }) : { data: null, error: null };
                 }
                 return onfulfilled ? onfulfilled({ data: null, error: { message: 'Not supported' } }) : { data: null, error: { message: 'Not supported' } };
               }

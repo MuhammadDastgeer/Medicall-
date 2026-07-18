@@ -57,6 +57,9 @@ CREATE POLICY "Allow users to read their own profile" ON public.profiles
 CREATE POLICY "Allow users to update their own profile" ON public.profiles
   FOR UPDATE USING (auth.uid() = id);
 
+CREATE POLICY "Allow users to delete their own profile" ON public.profiles
+  FOR DELETE USING (auth.uid() = id);
+
 -- Business Profiles Policies
 CREATE POLICY "Allow users to read their own business profile" ON public.business_profiles
   FOR SELECT USING (auth.uid() = id);
@@ -67,6 +70,9 @@ CREATE POLICY "Allow users to update their own business profile" ON public.busin
 CREATE POLICY "Allow users to insert their own business profile" ON public.business_profiles
   FOR INSERT WITH CHECK (auth.uid() = id);
 
+CREATE POLICY "Allow users to delete their own business profile" ON public.business_profiles
+  FOR DELETE USING (auth.uid() = id);
+
 -- Business Hours Policies
 CREATE POLICY "Allow users to read their own business hours" ON public.business_hours
   FOR SELECT USING (auth.uid() = id);
@@ -76,6 +82,9 @@ CREATE POLICY "Allow users to update their own business hours" ON public.busines
 
 CREATE POLICY "Allow users to insert their own business hours" ON public.business_hours
   FOR INSERT WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Allow users to delete their own business hours" ON public.business_hours
+  FOR DELETE USING (auth.uid() = id);
 
 -- 4. Create trigger to automatically create profiles and default entries when a user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user()

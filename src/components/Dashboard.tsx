@@ -799,6 +799,7 @@ export default function Dashboard({
       }
 
       // Delete from all database tables
+      await supabase.from('profiles').delete().eq('id', user.id);
       await supabase.from('business_profiles').delete().eq('id', user.id);
       await supabase.from('business_hours').delete().eq('id', user.id);
       await supabase.from('faqs').delete().eq('user_id', user.id);
