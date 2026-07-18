@@ -67,7 +67,18 @@ async function startServer() {
     }
   });
 
-  const isProduction = process.env.NODE_ENV === "production" || (typeof __filename !== "undefined" && __filename.includes("dist"));
+  let isProduction = process.env.NODE_ENV === "production" || (typeof __filename !== "undefined" && __filename.includes("dist"));
+
+  if (!isProduction) {
+    try {
+      // Robust dynamic check: if Vite is not installed or available, we must run in production mode
+      await import("vite");
+      console.log("Vite is available. Proceeding in development mode.");
+    } catch (e) {
+      console.log("Vite is NOT available (pruned production environment). Falling back to serving static files in production mode.");
+      isProduction = true;
+    }
+  }
 
   // Vite middleware for development
   if (!isProduction) {
