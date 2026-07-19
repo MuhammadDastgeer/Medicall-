@@ -7,6 +7,14 @@ async function startServer() {
 
   app.use(express.json());
 
+  // API Route to expose Supabase configuration to the client dynamically at runtime
+  app.get("/api/config", (req, res) => {
+    res.json({
+      supabaseUrl: process.env.VITE_SUPABASE_URL || "",
+      supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || ""
+    });
+  });
+
   // Log on startup
   console.log("Starting server...");
   console.log("Environment NODE_ENV:", process.env.NODE_ENV);

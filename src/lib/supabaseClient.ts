@@ -2,15 +2,49 @@ import { createClient } from '@supabase/supabase-js';
 import { BusinessProfile, BusinessHours } from '../types';
 import { INITIAL_FAQS, INITIAL_SERVICES, INITIAL_APPOINTMENTS, INITIAL_AGENTS } from '../data';
 
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+export let isSupabaseConfigured = false;
+export let realClient: any = null;
+export let useMockFallback = true;
 
-// Detect if real Supabase configuration is available
-export const isSupabaseConfigured = 
-  !!supabaseUrl && 
-  !!supabaseAnonKey && 
-  supabaseUrl !== 'YOUR_SUPABASE_URL' && 
-  supabaseAnonKey !== 'YOUR_SUPABASE_ANON_KEY';
+const buildTimeUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
+const buildTimeAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+
+const isValidConfig = (url: string, key: string) => {
+  return !!url && !!key && url !== 'YOUR_SUPABASE_URL' && key !== 'YOUR_SUPABASE_ANON_KEY';
+};
+
+// Start dynamic loading from either build-time env or server-side API
+export const initSupabasePromise = (async () => {
+  if (isValidConfig(buildTimeUrl, buildTimeAnonKey)) {
+    isSupabaseConfigured = true;
+    useMockFallback = false;
+    try {
+      realClient = createClient(buildTimeUrl, buildTimeAnonKey);
+      console.log('Real Supabase client initialized from build-time environment.');
+      return;
+    } catch (err) {
+      console.error('Failed to initialize real Supabase client from build-time env:', err);
+    }
+  }
+
+  // Fallback to runtime config fetch from backend
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) {
+      const config = await res.json();
+      if (isValidConfig(config.supabaseUrl, config.supabaseAnonKey)) {
+        isSupabaseConfigured = true;
+        useMockFallback = false;
+        realClient = createClient(config.supabaseUrl, config.supabaseAnonKey);
+        console.log('Real Supabase client initialized from runtime API.');
+      } else {
+        console.log('Runtime Supabase config is empty or placeholder. Staying in mock database mode.');
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch runtime Supabase config, staying in mock database mode:', err);
+  }
+})();
 
 // Standardized structure for Mock Auth user
 interface MockUser {
@@ -19,17 +53,6 @@ interface MockUser {
   name: string;
   businessName: string;
   password?: string;
-}
-
-// Global variable for real client if initialized
-let realClient: any = null;
-
-if (isSupabaseConfigured) {
-  try {
-    realClient = createClient(supabaseUrl, supabaseAnonKey);
-  } catch (err) {
-    console.error('Failed to initialize real Supabase client:', err);
-  }
 }
 
 /**
@@ -705,11 +728,7 @@ class LocalStorageSupabaseMock {
 }
 
 // Instantiate fallback mock client
-const realSupabase = realClient;
 const mockSupabase = new LocalStorageSupabaseMock();
-
-// Session-level tracker to fall back to mock database if real client is rate-limited or fails
-let useMockFallback = !isSupabaseConfigured;
 
 export const supabase: any = {
   get isMock() {
@@ -718,11 +737,12 @@ export const supabase: any = {
 
   auth: {
     signUp: async (params: any) => {
-      if (useMockFallback || !realSupabase) {
+      await initSupabasePromise;
+      if (useMockFallback || !realClient) {
         return mockSupabase.auth.signUp(params);
       }
       try {
-        const res = await realSupabase.auth.signUp(params);
+        const res = await realClient.auth.signUp(params);
         if (res.error) {
           console.warn('Real Supabase signUp error, falling back to local sandbox:', res.error.message);
           useMockFallback = true;
@@ -737,11 +757,12 @@ export const supabase: any = {
     },
 
     signInWithPassword: async (params: any) => {
-      if (useMockFallback || !realSupabase) {
+      await initSupabasePromise;
+      if (useMockFallback || !realClient) {
         return mockSupabase.auth.signInWithPassword(params);
       }
       try {
-        const res = await realSupabase.auth.signInWithPassword(params);
+        const res = await realClient.auth.signInWithPassword(params);
         if (res.error) {
           console.warn('Real Supabase signIn error, falling back to local sandbox:', res.error.message);
           useMockFallback = true;
@@ -756,11 +777,12 @@ export const supabase: any = {
     },
 
     resetPasswordForEmail: async (email: string) => {
-      if (useMockFallback || !realSupabase) {
+      await initSupabasePromise;
+      if (useMockFallback || !realClient) {
         return mockSupabase.auth.resetPasswordForEmail(email);
       }
       try {
-        const res = await realSupabase.auth.resetPasswordForEmail(email);
+        const res = await realClient.auth.resetPasswordForEmail(email);
         if (res.error) {
           return mockSupabase.auth.resetPasswordForEmail(email);
         }
@@ -771,11 +793,12 @@ export const supabase: any = {
     },
  
     updateUser: async (attributes: any) => {
-      if (useMockFallback || !realSupabase) {
+      await initSupabasePromise;
+      if (useMockFallback || !realClient) {
         return mockSupabase.auth.updateUser(attributes);
       }
       try {
-        const res = await realSupabase.auth.updateUser(attributes);
+        const res = await realClient.auth.updateUser(attributes);
         if (res.error) {
           return mockSupabase.auth.updateUser(attributes);
         }
@@ -786,9 +809,10 @@ export const supabase: any = {
     },
 
     signOut: async () => {
-      if (realSupabase) {
+      await initSupabasePromise;
+      if (realClient) {
         try {
-          await realSupabase.auth.signOut();
+          await realClient.auth.signOut();
         } catch (e) {}
       }
       await mockSupabase.auth.signOut();
@@ -797,11 +821,12 @@ export const supabase: any = {
     },
 
     getUser: async () => {
-      if (useMockFallback || !realSupabase) {
+      await initSupabasePromise;
+      if (useMockFallback || !realClient) {
         return mockSupabase.auth.getUser();
       }
       try {
-        const res = await realSupabase.auth.getUser();
+        const res = await realClient.auth.getUser();
         if (res.error || !res.data?.user) {
           return mockSupabase.auth.getUser();
         }
@@ -812,11 +837,12 @@ export const supabase: any = {
     },
 
     getSession: async () => {
-      if (useMockFallback || !realSupabase) {
+      await initSupabasePromise;
+      if (useMockFallback || !realClient) {
         return mockSupabase.auth.getSession();
       }
       try {
-        const res = await realSupabase.auth.getSession();
+        const res = await realClient.auth.getSession();
         if (res.error || !res.data?.session) {
           return mockSupabase.auth.getSession();
         }
@@ -827,65 +853,116 @@ export const supabase: any = {
     },
 
     onAuthStateChange: (callback: any) => {
-      if (realSupabase) {
-        try {
-          return realSupabase.auth.onAuthStateChange(callback);
-        } catch (e) {}
-      }
-      return mockSupabase.auth.onAuthStateChange(callback);
+      const mockUnsubscribe = mockSupabase.auth.onAuthStateChange(callback);
+      let realUnsubscribe: any = null;
+      initSupabasePromise.then(() => {
+        if (realClient) {
+          try {
+            const { data } = realClient.auth.onAuthStateChange(callback);
+            realUnsubscribe = data?.subscription;
+          } catch (e) {}
+        }
+      });
+      return {
+        data: {
+          subscription: {
+            unsubscribe: () => {
+              if (mockUnsubscribe?.data?.subscription) {
+                mockUnsubscribe.data.subscription.unsubscribe();
+              } else if (typeof mockUnsubscribe === 'function') {
+                (mockUnsubscribe as any)();
+              }
+              if (realUnsubscribe) {
+                if (typeof realUnsubscribe.unsubscribe === 'function') {
+                  realUnsubscribe.unsubscribe();
+                } else if (typeof realUnsubscribe === 'function') {
+                  realUnsubscribe();
+                }
+              }
+            }
+          }
+        }
+      };
     }
   },
 
   from: (tableName: string) => {
-    if (useMockFallback || !realSupabase) {
-      return mockSupabase.from(tableName);
-    }
+    const chain: { prop: string | symbol; args: any[] }[] = [];
 
-    const wrapQuery = (realQuery: any, mockQuery: any): any => {
-      return new Proxy({}, {
-        get(target, prop) {
-          if (prop === 'then') {
-            return (onfulfilled?: any, onrejected?: any) => {
-              return realQuery.then(
-                async (res: any) => {
-                  if (res && res.error) {
-                    console.warn(`Real database query returned error for ${tableName}, falling back to local sandbox:`, res.error);
-                    useMockFallback = true;
-                    const mockRes = await mockQuery;
-                    return onfulfilled ? onfulfilled(mockRes) : mockRes;
-                  }
-                  return onfulfilled ? onfulfilled(res) : res;
-                },
-                async (err: any) => {
-                  console.warn(`Real database query threw error for ${tableName}, falling back to local sandbox:`, err);
-                  useMockFallback = true;
-                  const mockRes = await mockQuery;
-                  return onfulfilled ? onfulfilled(mockRes) : mockRes;
+    const builder: any = new Proxy({}, {
+      get(target, prop) {
+        if (prop === 'then') {
+          return async (onfulfilled?: any, onrejected?: any) => {
+            await initSupabasePromise;
+            
+            // Determine if we should use mock or real
+            if (useMockFallback || !realClient) {
+              let mockQuery = mockSupabase.from(tableName);
+              for (const call of chain) {
+                if (typeof mockQuery[call.prop] === 'function') {
+                  mockQuery = mockQuery[call.prop].apply(mockQuery, call.args);
                 }
-              );
-            };
-          }
+              }
+              const res = await mockQuery;
+              return onfulfilled ? onfulfilled(res) : res;
+            }
 
-          if (prop === 'constructor' || typeof prop === 'symbol') {
-            return (realQuery as any)[prop];
-          }
-
-          const realValue = realQuery[prop];
-          const mockValue = mockQuery[prop];
-
-          if (typeof realValue === 'function') {
-            return (...args: any[]) => {
-              const nextReal = realValue.apply(realQuery, args);
-              const nextMock = typeof mockValue === 'function' ? mockValue.apply(mockQuery, args) : mockValue;
-              return wrapQuery(nextReal, nextMock);
-            };
-          }
-
-          return realValue;
+            try {
+              let realQuery = realClient.from(tableName);
+              for (const call of chain) {
+                if (typeof realQuery[call.prop] === 'function') {
+                  realQuery = realQuery[call.prop].apply(realQuery, call.args);
+                }
+              }
+              const res = await realQuery;
+              if (res && res.error) {
+                console.warn(`Real database query returned error for ${tableName}, falling back to local sandbox:`, res.error);
+                let mockQuery = mockSupabase.from(tableName);
+                for (const call of chain) {
+                  if (typeof mockQuery[call.prop] === 'function') {
+                    mockQuery = mockQuery[call.prop].apply(mockQuery, call.args);
+                  }
+                }
+                const mockRes = await mockQuery;
+                return onfulfilled ? onfulfilled(mockRes) : mockRes;
+              }
+              return onfulfilled ? onfulfilled(res) : res;
+            } catch (err) {
+              console.warn(`Real database query threw error for ${tableName}, falling back to local sandbox:`, err);
+              let mockQuery = mockSupabase.from(tableName);
+              for (const call of chain) {
+                if (typeof mockQuery[call.prop] === 'function') {
+                  mockQuery = mockQuery[call.prop].apply(mockQuery, call.args);
+                }
+              }
+              const mockRes = await mockQuery;
+              return onfulfilled ? onfulfilled(mockRes) : mockRes;
+            }
+          };
         }
-      });
-    };
 
-    return wrapQuery(realSupabase.from(tableName), mockSupabase.from(tableName));
+        if (prop === 'catch') {
+          return (onrejected?: any) => builder.then(undefined, onrejected);
+        }
+
+        if (prop === 'finally') {
+          return (onfinally?: any) => builder.then(
+            (res: any) => { onfinally && onfinally(); return res; },
+            (err: any) => { onfinally && onfinally(); throw err; }
+          );
+        }
+
+        if (prop === 'constructor' || typeof prop === 'symbol') {
+          return undefined;
+        }
+
+        return (...args: any[]) => {
+          chain.push({ prop, args });
+          return builder;
+        };
+      }
+    });
+
+    return builder;
   }
 };
