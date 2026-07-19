@@ -159,10 +159,36 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="bg-red-950/40 border border-red-900/30 text-red-400 px-4 py-3 rounded-xl text-xs flex items-center gap-2"
+                  className="bg-red-950/45 border border-red-900/40 text-red-400 p-4 rounded-xl text-xs flex flex-col gap-3"
                 >
-                  <Shield className="w-4 h-4 shrink-0" />
-                  <span>{error}</span>
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 shrink-0 text-red-500" />
+                    <span className="font-semibold text-white">Error Encountered</span>
+                  </div>
+                  <p className="text-gray-300 leading-relaxed text-[11px]">{error}</p>
+                  
+                  {(error.includes('Rate Limit') || error.includes('confirm') || error.includes('Confirm email') || error.includes('limit')) && (
+                    <div className="mt-1 pt-3 border-t border-red-900/40 bg-slate-900/60 p-3 rounded-lg text-gray-300 text-[11px] leading-relaxed flex flex-col gap-2">
+                      <div className="text-amber-400 font-bold uppercase tracking-wider text-[10px]">
+                        💡 INSTANT SOLUTION / FORI HAL:
+                      </div>
+                      <p className="text-gray-400 font-medium">
+                        Supabase free tier limits emails. You can turn email confirmation off to instantly register and log in with zero limits:
+                      </p>
+                      
+                      <ol className="list-decimal list-inside space-y-1 text-gray-300 ml-1">
+                        <li>Go to your <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-[#2563eb] underline hover:text-[#2563eb]/80 font-semibold">Supabase Dashboard</a></li>
+                        <li>Click <strong className="text-white">Authentication</strong> (Left side navigation)</li>
+                        <li>Click <strong className="text-white">Providers</strong> -&gt; <strong className="text-white">Email</strong></li>
+                        <li>Uncheck / Turn off <strong className="text-amber-400">"Confirm email"</strong></li>
+                        <li>Click <strong className="text-white">Save</strong></li>
+                      </ol>
+
+                      <div className="mt-1 pt-2 border-t border-slate-800 text-[10px] text-gray-400 leading-normal">
+                        <strong>Urdu/Hindi:</strong> Apne Supabase dashboard mein ja kar <span className="text-white">"Confirm email"</span> ko uncheck (disable) kar ke save kar dein. Is se bina kisi verification bottleneck ya limit ke signup foran chal pare ga!
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
