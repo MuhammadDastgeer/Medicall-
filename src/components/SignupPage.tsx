@@ -57,7 +57,17 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
       });
 
       if (signUpError) {
-        setError(signUpError.message);
+        let msg = signUpError.message;
+        if (
+          msg.toLowerCase().includes('rate limit') || 
+          msg.toLowerCase().includes('rate_limit') || 
+          msg.toLowerCase().includes('60 seconds') || 
+          msg.toLowerCase().includes('too many requests') ||
+          msg.toLowerCase().includes('email provider')
+        ) {
+          msg = "Supabase Email Rate Limit Exceeded. To fix this instantly, please go to your Supabase Dashboard -> Authentication -> Providers -> Email, and disable 'Confirm email' (uncheck it). This allows immediate signups without any email verification bottlenecks!";
+        }
+        setError(msg);
         setIsLoading(false);
         return;
       }

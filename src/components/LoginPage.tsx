@@ -39,7 +39,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       });
 
       if (signInError) {
-        setError(signInError.message);
+        let msg = signInError.message;
+        if (msg.toLowerCase().includes('confirm') || msg.toLowerCase().includes('verification')) {
+          msg = "Email not confirmed. To login immediately without verification, please go to your Supabase Dashboard -> Authentication -> Providers -> Email, and disable 'Confirm email' (uncheck it).";
+        } else if (
+          msg.toLowerCase().includes('rate limit') || 
+          msg.toLowerCase().includes('rate_limit') || 
+          msg.toLowerCase().includes('60 seconds') || 
+          msg.toLowerCase().includes('too many requests')
+        ) {
+          msg = "Supabase login rate limit exceeded. To bypass verification checks and limits, go to your Supabase Dashboard -> Authentication -> Providers -> Email, and disable 'Confirm email'.";
+        }
+        setError(msg);
         setIsLoading(false);
         return;
       }
@@ -66,7 +77,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim());
 
       if (resetError) {
-        setError(resetError.message);
+        let msg = resetError.message;
+        if (
+          msg.toLowerCase().includes('rate limit') || 
+          msg.toLowerCase().includes('rate_limit') || 
+          msg.toLowerCase().includes('60 seconds') || 
+          msg.toLowerCase().includes('too many requests')
+        ) {
+          msg = "Password reset rate limit hit. Try again in a minute, or go to your Supabase Dashboard to adjust rate limits under Auth Settings.";
+        }
+        setError(msg);
         setForgotLoading(false);
         return;
       }
