@@ -231,10 +231,7 @@ export default function App() {
 
       await supabase
         .from('business_profiles')
-        .update(newProfile)
-        .eq('id', user.id)
-        .select()
-        .single();
+        .upsert({ id: user.id, ...newProfile });
     } catch (err) {
       console.error('Error syncing profile to Supabase:', err);
     }
@@ -249,10 +246,7 @@ export default function App() {
 
       await supabase
         .from('business_hours')
-        .update(newHours)
-        .eq('id', user.id)
-        .select()
-        .single();
+        .upsert({ id: user.id, ...newHours });
     } catch (err) {
       console.error('Error syncing hours to Supabase:', err);
     }

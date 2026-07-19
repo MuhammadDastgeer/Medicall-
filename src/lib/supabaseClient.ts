@@ -738,57 +738,59 @@ export const supabase: any = {
   auth: {
     signUp: async (params: any) => {
       await initSupabasePromise;
-      if (useMockFallback || !realClient) {
+      if (!isSupabaseConfigured || !realClient) {
         return mockSupabase.auth.signUp(params);
       }
       try {
         const res = await realClient.auth.signUp(params);
         if (res.error) {
-          console.warn('Real Supabase signUp error, falling back to local sandbox:', res.error.message);
-          useMockFallback = true;
-          return mockSupabase.auth.signUp(params);
+          console.warn('Real Supabase signUp error:', res.error.message);
+          return res;
         }
+        useMockFallback = false;
         return res;
       } catch (err: any) {
-        console.warn('Real Supabase signUp exception, falling back to local sandbox:', err);
-        useMockFallback = true;
-        return mockSupabase.auth.signUp(params);
+        console.warn('Real Supabase signUp exception:', err);
+        return { data: { user: null, session: null }, error: err };
       }
     },
 
     signInWithPassword: async (params: any) => {
       await initSupabasePromise;
-      if (useMockFallback || !realClient) {
+      if (params.email?.toLowerCase() === 'demo@medicall.ai') {
+        useMockFallback = true;
+        return mockSupabase.auth.signInWithPassword(params);
+      }
+      if (!isSupabaseConfigured || !realClient) {
         return mockSupabase.auth.signInWithPassword(params);
       }
       try {
         const res = await realClient.auth.signInWithPassword(params);
         if (res.error) {
-          console.warn('Real Supabase signIn error, falling back to local sandbox:', res.error.message);
-          useMockFallback = true;
-          return mockSupabase.auth.signInWithPassword(params);
+          console.warn('Real Supabase signIn error:', res.error.message);
+          return res;
         }
+        useMockFallback = false;
         return res;
       } catch (err: any) {
-        console.warn('Real Supabase signIn exception, falling back to local sandbox:', err);
-        useMockFallback = true;
-        return mockSupabase.auth.signInWithPassword(params);
+        console.warn('Real Supabase signIn exception:', err);
+        return { data: { user: null, session: null }, error: err };
       }
     },
 
     resetPasswordForEmail: async (email: string) => {
       await initSupabasePromise;
-      if (useMockFallback || !realClient) {
+      if (email.toLowerCase() === 'demo@medicall.ai') {
+        return mockSupabase.auth.resetPasswordForEmail(email);
+      }
+      if (!isSupabaseConfigured || !realClient) {
         return mockSupabase.auth.resetPasswordForEmail(email);
       }
       try {
         const res = await realClient.auth.resetPasswordForEmail(email);
-        if (res.error) {
-          return mockSupabase.auth.resetPasswordForEmail(email);
-        }
         return res;
-      } catch (err) {
-        return mockSupabase.auth.resetPasswordForEmail(email);
+      } catch (err: any) {
+        return { error: err };
       }
     },
  
@@ -799,12 +801,9 @@ export const supabase: any = {
       }
       try {
         const res = await realClient.auth.updateUser(attributes);
-        if (res.error) {
-          return mockSupabase.auth.updateUser(attributes);
-        }
         return res;
-      } catch (err) {
-        return mockSupabase.auth.updateUser(attributes);
+      } catch (err: any) {
+        return { error: err };
       }
     },
 
@@ -822,14 +821,20 @@ export const supabase: any = {
 
     getUser: async () => {
       await initSupabasePromise;
-      if (useMockFallback || !realClient) {
+      if (!isSupabaseConfigured || !realClient) {
         return mockSupabase.auth.getUser();
       }
       try {
         const res = await realClient.auth.getUser();
         if (res.error || !res.data?.user) {
-          return mockSupabase.auth.getUser();
+          const mockRes = await mockSupabase.auth.getUser();
+          if (mockRes.data?.user) {
+            useMockFallback = true;
+            return mockRes;
+          }
+          return res;
         }
+        useMockFallback = false;
         return res;
       } catch (err) {
         return mockSupabase.auth.getUser();
@@ -838,14 +843,20 @@ export const supabase: any = {
 
     getSession: async () => {
       await initSupabasePromise;
-      if (useMockFallback || !realClient) {
+      if (!isSupabaseConfigured || !realClient) {
         return mockSupabase.auth.getSession();
       }
       try {
         const res = await realClient.auth.getSession();
         if (res.error || !res.data?.session) {
-          return mockSupabase.auth.getSession();
+          const mockRes = await mockSupabase.auth.getSession();
+          if (mockRes.data?.session) {
+            useMockFallback = true;
+            return mockRes;
+          }
+          return res;
         }
+        useMockFallback = false;
         return res;
       } catch (err) {
         return mockSupabase.auth.getSession();
