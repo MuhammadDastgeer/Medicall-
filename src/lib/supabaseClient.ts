@@ -757,10 +757,6 @@ export const supabase: any = {
 
     signInWithPassword: async (params: any) => {
       await initSupabasePromise;
-      if (params.email?.toLowerCase() === 'demo@medicall.ai') {
-        useMockFallback = true;
-        return mockSupabase.auth.signInWithPassword(params);
-      }
       if (!isSupabaseConfigured || !realClient) {
         return mockSupabase.auth.signInWithPassword(params);
       }
@@ -780,9 +776,6 @@ export const supabase: any = {
 
     resetPasswordForEmail: async (email: string) => {
       await initSupabasePromise;
-      if (email.toLowerCase() === 'demo@medicall.ai') {
-        return mockSupabase.auth.resetPasswordForEmail(email);
-      }
       if (!isSupabaseConfigured || !realClient) {
         return mockSupabase.auth.resetPasswordForEmail(email);
       }

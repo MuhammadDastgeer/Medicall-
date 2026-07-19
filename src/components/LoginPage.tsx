@@ -10,8 +10,8 @@ interface LoginPageProps {
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('demo@medicall.ai');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -77,11 +77,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       setError(err?.message || 'Failed to trigger password reset.');
       setForgotLoading(false);
     }
-  };
-
-  const handleFillDemo = () => {
-    setEmail('demo@medicall.ai');
-    setPassword('password123');
   };
 
   return (
