@@ -6,8 +6,8 @@ export let isSupabaseConfigured = false;
 export let realClient: any = null;
 export let useMockFallback = true;
 
-const buildTimeUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
-const buildTimeAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+const buildTimeUrl = (import.meta as any).env.VITE_SUPABASE_URL || (import.meta as any).env.SUPABASE_URL || '';
+const buildTimeAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || (import.meta as any).env.SUPABASE_ANON_KEY || '';
 
 const isValidConfig = (url: string, key: string) => {
   return !!url && !!key && url !== 'YOUR_SUPABASE_URL' && key !== 'YOUR_SUPABASE_ANON_KEY';
@@ -822,21 +822,24 @@ export const supabase: any = {
     getUser: async () => {
       await initSupabasePromise;
       if (!isSupabaseConfigured || !realClient) {
+        useMockFallback = true;
         return mockSupabase.auth.getUser();
       }
       try {
         const res = await realClient.auth.getUser();
-        if (res.error || !res.data?.user) {
-          const mockRes = await mockSupabase.auth.getUser();
-          if (mockRes.data?.user) {
-            useMockFallback = true;
-            return mockRes;
-          }
+        if (res.data?.user) {
+          useMockFallback = false;
           return res;
+        }
+        const mockRes = await mockSupabase.auth.getUser();
+        if (mockRes.data?.user) {
+          useMockFallback = true;
+          return mockRes;
         }
         useMockFallback = false;
         return res;
       } catch (err) {
+        useMockFallback = true;
         return mockSupabase.auth.getUser();
       }
     },
@@ -844,21 +847,24 @@ export const supabase: any = {
     getSession: async () => {
       await initSupabasePromise;
       if (!isSupabaseConfigured || !realClient) {
+        useMockFallback = true;
         return mockSupabase.auth.getSession();
       }
       try {
         const res = await realClient.auth.getSession();
-        if (res.error || !res.data?.session) {
-          const mockRes = await mockSupabase.auth.getSession();
-          if (mockRes.data?.session) {
-            useMockFallback = true;
-            return mockRes;
-          }
+        if (res.data?.session) {
+          useMockFallback = false;
           return res;
+        }
+        const mockRes = await mockSupabase.auth.getSession();
+        if (mockRes.data?.session) {
+          useMockFallback = true;
+          return mockRes;
         }
         useMockFallback = false;
         return res;
       } catch (err) {
+        useMockFallback = true;
         return mockSupabase.auth.getSession();
       }
     },
@@ -927,27 +933,12 @@ export const supabase: any = {
               }
               const res = await realQuery;
               if (res && res.error) {
-                console.warn(`Real database query returned error for ${tableName}, falling back to local sandbox:`, res.error);
-                let mockQuery = mockSupabase.from(tableName);
-                for (const call of chain) {
-                  if (typeof mockQuery[call.prop] === 'function') {
-                    mockQuery = mockQuery[call.prop].apply(mockQuery, call.args);
-                  }
-                }
-                const mockRes = await mockQuery;
-                return onfulfilled ? onfulfilled(mockRes) : mockRes;
+                console.error(`Supabase real query error on table "${tableName}":`, res.error);
               }
               return onfulfilled ? onfulfilled(res) : res;
             } catch (err) {
-              console.warn(`Real database query threw error for ${tableName}, falling back to local sandbox:`, err);
-              let mockQuery = mockSupabase.from(tableName);
-              for (const call of chain) {
-                if (typeof mockQuery[call.prop] === 'function') {
-                  mockQuery = mockQuery[call.prop].apply(mockQuery, call.args);
-                }
-              }
-              const mockRes = await mockQuery;
-              return onfulfilled ? onfulfilled(mockRes) : mockRes;
+              console.error(`Supabase real query exception on table "${tableName}":`, err);
+              return onrejected ? onrejected(err) : Promise.reject(err);
             }
           };
         }
